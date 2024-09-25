@@ -1,0 +1,38 @@
+[package]
+name = "labcaller-api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.7.5" }
+dotenvy = "0.15.7"
+serde = { version = "1.0.209", features = ["derive"] }
+serde_json = "1.0.128"
+tokio = { version = "1.40.0", features = ["full"] }
+hyper = "1.4.1"
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+uuid = { version = "1.10.0", features = ["serde", "v4", "fast-rng"] }
+chrono = { version = "0.4.38", features = ["serde"] }
+sea-orm = { version = "1.0.1", features = [
+    "sqlx-postgres",
+    "runtime-tokio-rustls",
+    "macros",
+    "with-uuid",
+    "with-chrono",
+    "with-json",
+], default-features = false }
+sea-orm-migration = "1.0.1"
+utoipa = { version = "4.2.3", features = ["axum_extras", "uuid"] }
+sea-query = "0.31.0"
+utoipa-swagger-ui = { version = "7.1.0", features = ["axum"] }
+utoipa-redoc = { version = "4.0.0", features = ["axum"] }
+utoipa-rapidoc = { version = "4.0.0", features = ["axum"] }
+utoipa-scalar = { version = "0.1.0", features = ["axum"] }
+byteorder = "1.5.0"
+aws-sdk-s3 = "1.51.0"
+aws-config = "1.5.6"
+aws-types = "1.3.3"
+futures = "0.3.30"
+rand = "0.8.5"
+aws-smithy-types = "1.2.6"
