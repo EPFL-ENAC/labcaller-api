@@ -4,12 +4,16 @@ use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
 use aws_sdk_s3::{config::Region, Client as S3Client};
 use aws_smithy_types::byte_stream::{ByteStream, Length};
 use config::Config;
+use futures::future::join_all;
 use std::env;
 use std::path::Path;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 
 mod config;
 
-const CHUNK_SIZE: u64 = 1024 * 1024 * 5;
+const CHUNK_SIZE: u64 = 1024 * 1024 * 50; // Increased chunk size to 50MB
+const MAX_CONCURRENT_UPLOADS: usize = 10; // Limit the number of concurrent uploads
 
 #[tokio::main]
 pub async fn main() {
@@ -41,9 +45,8 @@ async fn run_example() -> () {
         .region(region)
         .load()
         .await;
-    // let shared_config = aws_config::load_from_env().await;
-    let client = S3Client::new(&shared_config);
 
+    let client = Arc::new(S3Client::new(&shared_config));
     let key = format!("{}/{}", config.s3_prefix, file_name);
 
     let multipart_upload_res: CreateMultipartUploadOutput = client
@@ -54,8 +57,7 @@ async fn run_example() -> () {
         .await
         .expect("Couldn't create multipart upload");
 
-    let upload_id = multipart_upload_res.upload_id().unwrap();
-
+    let upload_id = multipart_upload_res.upload_id().unwrap().to_string();
     let path = Path::new(&file_path);
     let file_size = tokio::fs::metadata(path)
         .await
@@ -69,15 +71,22 @@ async fn run_example() -> () {
         chunk_count -= 1;
     }
 
-    // snippet-start:[s3.rust.upload_part]
-    let mut upload_parts: Vec<aws_sdk_s3::types::CompletedPart> = Vec::new();
+    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_UPLOADS)); // Limit concurrency
+    let mut upload_futures = Vec::new();
 
     for chunk_index in 0..chunk_count {
+        let client = Arc::clone(&client);
+        let key = key.clone();
+        let upload_id = upload_id.clone();
+        let bucket = config.s3_bucket.clone();
+        let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap(); // Acquire semaphore permit
+
         let this_chunk = if chunk_count - 1 == chunk_index {
             size_of_last_chunk
         } else {
             CHUNK_SIZE
         };
+
         let stream = ByteStream::read_from()
             .path(path)
             .offset(chunk_index * CHUNK_SIZE)
@@ -86,37 +95,48 @@ async fn run_example() -> () {
             .await
             .unwrap();
 
-        // Chunk index needs to start at 0, but part numbers start at 1.
-        let part_number = (chunk_index as i32) + 1;
-        let upload_part_res = client
-            .upload_part()
-            .key(&key)
-            .bucket(&config.s3_bucket)
-            .upload_id(upload_id)
-            .body(stream)
-            .part_number(part_number)
-            .send()
-            .await
-            .expect("Couldn't upload part");
+        // Upload each part concurrently using tokio::spawn
+        let upload_future = tokio::spawn(async move {
+            let part_number = (chunk_index as i32) + 1;
+            let upload_part_res = client
+                .upload_part()
+                .key(&key)
+                .bucket(&bucket)
+                .upload_id(&upload_id)
+                .body(stream)
+                .part_number(part_number)
+                .send()
+                .await
+                .expect("Couldn't upload part");
 
-        upload_parts.push(
+            drop(permit); // Release semaphore permit when the upload is done
+
             CompletedPart::builder()
                 .e_tag(upload_part_res.e_tag.unwrap_or_default())
                 .part_number(part_number)
-                .build(),
-        );
+                .build()
+        });
+
+        upload_futures.push(upload_future);
     }
 
+    // Wait for all upload parts to complete
+    let completed_parts = join_all(upload_futures)
+        .await
+        .into_iter()
+        .map(|result| result.unwrap())
+        .collect::<Vec<CompletedPart>>();
+
     let completed_multipart_upload: CompletedMultipartUpload = CompletedMultipartUpload::builder()
-        .set_parts(Some(upload_parts))
+        .set_parts(Some(completed_parts))
         .build();
 
-    let _complete_multipart_upload_res = client
+    client
         .complete_multipart_upload()
         .bucket(&config.s3_bucket)
         .key(&key)
         .multipart_upload(completed_multipart_upload)
-        .upload_id(upload_id)
+        .upload_id(&upload_id)
         .send()
         .await
         .expect("Couldn't complete multipart upload");
