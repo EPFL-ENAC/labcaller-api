@@ -1,3 +1,4 @@
+use aws_config::BehaviorVersion;
 use aws_sdk_s3::config::Credentials;
 use aws_sdk_s3::operation::create_multipart_upload::CreateMultipartUploadOutput;
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
@@ -50,10 +51,10 @@ where
         None,
         "manual",
     );
-    let shared_config = aws_config::from_env()
+    let shared_config = aws_config::defaults(BehaviorVersion::latest())
+        .region(region.clone())
         .credentials_provider(credentials)
         .endpoint_url(&config.s3_url)
-        .region(region)
         .load()
         .await;
 
