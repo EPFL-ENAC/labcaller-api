@@ -2,28 +2,24 @@ use aws_sdk_s3::config::Credentials;
 use aws_sdk_s3::operation::create_multipart_upload::CreateMultipartUploadOutput;
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
 use aws_sdk_s3::{config::Region, Client as S3Client};
-use aws_smithy_types::byte_stream::{ByteStream, Length};
+use aws_smithy_types::byte_stream::ByteStream;
 use config::Config;
 use futures::future::join_all;
-use std::env;
-use std::path::Path;
 use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::Semaphore;
 
 mod config;
 
-const CHUNK_SIZE: u64 = 1024 * 1024 * 50; // Increased chunk size to 50MB
+const PART_SIZE: usize = 5 * 1024 * 1024; // Minimum part size for S3 multipart upload
 const MAX_CONCURRENT_UPLOADS: usize = 10; // Limit the number of concurrent uploads
 
 #[tokio::main]
 pub async fn main() {
-    run_example().await
-}
-
-async fn run_example() -> () {
+    // Example usage with a file
     let config = Config::from_env();
 
-    let args: Vec<String> = env::args().collect();
+    let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!("Usage: {} <file_path>", args[0]);
         std::process::exit(1);
@@ -31,6 +27,21 @@ async fn run_example() -> () {
     let file_path = &args[1];
     let file_name = file_path.split('/').last().unwrap();
 
+    // Open the file and create a stream
+    let file = tokio::fs::File::open(file_path)
+        .await
+        .expect("Failed to open file");
+    let stream = tokio::io::BufReader::new(file);
+
+    // Call the upload function with the stream and key
+    upload_stream(stream, file_name, &config).await;
+}
+
+/// This function handles the multipart upload of data from a stream
+async fn upload_stream<R>(mut stream: R, file_key: &str, config: &Config)
+where
+    R: AsyncRead + Unpin + Send + 'static,
+{
     let region = Region::new("us-east-1");
     let credentials = Credentials::new(
         &config.s3_access_key,
@@ -47,8 +58,11 @@ async fn run_example() -> () {
         .await;
 
     let client = Arc::new(S3Client::new(&shared_config));
-    let key = format!("{}/{}", config.s3_prefix, file_name);
 
+    // Add the prefix to the key
+    let key = format!("{}/{}", config.s3_prefix, file_key);
+
+    // Start the multipart upload
     let multipart_upload_res: CreateMultipartUploadOutput = client
         .create_multipart_upload()
         .bucket(&config.s3_bucket)
@@ -58,52 +72,53 @@ async fn run_example() -> () {
         .expect("Couldn't create multipart upload");
 
     let upload_id = multipart_upload_res.upload_id().unwrap().to_string();
-    let path = Path::new(&file_path);
-    let file_size = tokio::fs::metadata(path)
-        .await
-        .expect("File not found")
-        .len();
-
-    let mut chunk_count = (file_size / CHUNK_SIZE) + 1;
-    let mut size_of_last_chunk = file_size % CHUNK_SIZE;
-    if size_of_last_chunk == 0 {
-        size_of_last_chunk = CHUNK_SIZE;
-        chunk_count -= 1;
-    }
 
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_UPLOADS)); // Limit concurrency
     let mut upload_futures = Vec::new();
+    let mut part_number = 1;
+    let mut eof = false;
 
-    for chunk_index in 0..chunk_count {
+    while !eof {
         let client = Arc::clone(&client);
         let key = key.clone();
         let upload_id = upload_id.clone();
         let bucket = config.s3_bucket.clone();
         let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap(); // Acquire semaphore permit
 
-        let this_chunk = if chunk_count - 1 == chunk_index {
-            size_of_last_chunk
-        } else {
-            CHUNK_SIZE
-        };
+        let mut buffer = vec![0u8; PART_SIZE];
+        let mut bytes_read = 0;
 
-        let stream = ByteStream::read_from()
-            .path(path)
-            .offset(chunk_index * CHUNK_SIZE)
-            .length(Length::Exact(this_chunk))
-            .build()
-            .await
-            .unwrap();
+        // Read data into buffer
+        while bytes_read < PART_SIZE {
+            match stream.read(&mut buffer[bytes_read..]).await {
+                Ok(0) => {
+                    eof = true;
+                    break;
+                }
+                Ok(n) => {
+                    bytes_read += n;
+                }
+                Err(e) => {
+                    eprintln!("Error reading stream: {}", e);
+                    return;
+                }
+            }
+        }
+
+        if bytes_read == 0 {
+            break; // No more data to read
+        }
+
+        let data = buffer[..bytes_read].to_vec();
 
         // Upload each part concurrently using tokio::spawn
         let upload_future = tokio::spawn(async move {
-            let part_number = (chunk_index as i32) + 1;
-            let upload_part_res = client
+            let part = client
                 .upload_part()
                 .key(&key)
                 .bucket(&bucket)
                 .upload_id(&upload_id)
-                .body(stream)
+                .body(ByteStream::from(data))
                 .part_number(part_number)
                 .send()
                 .await
@@ -112,12 +127,15 @@ async fn run_example() -> () {
             drop(permit); // Release semaphore permit when the upload is done
 
             CompletedPart::builder()
-                .e_tag(upload_part_res.e_tag.unwrap_or_default())
+                .e_tag(part.e_tag().unwrap_or_default())
                 .part_number(part_number)
                 .build()
         });
 
         upload_futures.push(upload_future);
+
+        // Move to the next part
+        part_number += 1;
     }
 
     // Wait for all upload parts to complete
@@ -140,6 +158,4 @@ async fn run_example() -> () {
         .send()
         .await
         .expect("Couldn't complete multipart upload");
-
-    ()
 }
