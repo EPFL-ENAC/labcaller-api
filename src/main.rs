@@ -35,7 +35,8 @@ async fn main() {
     // get_file_and_upload().await; // Uploads a file to S3
     let app: Router = Router::new()
         .nest("/api/submissions", submissions::views::router(db))
-        .route("/healthz", get(common::views::healthz));
+        .route("/healthz", get(common::views::healthz))
+        .route("/api/config", get(common::views::get_ui_config));
 
     let addr: std::net::SocketAddr = "0.0.0.0:3000".parse().unwrap();
     println!("Listening on {}", addr);
