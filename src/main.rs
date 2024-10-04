@@ -1,64 +1,60 @@
+mod common;
 mod config;
 mod k8s;
 mod s3;
+mod submissions;
 
-use crate::k8s::services::get_pods_from_namespace;
+// use crate::k8s::services::get_pods_from_namespace;
 use crate::s3::services::upload_stream;
+use axum::{routing::get, Router};
 use config::Config;
-
-use futures::prelude::*;
-use k8s_openapi::api::core::v1::Pod;
-use kube::{
-    api::{Api, ResourceExt},
-    runtime::{watcher, WatchStreamExt},
-    Client,
-};
-use tracing::*;
+use migration::{Migrator, MigratorTrait};
+use sea_orm::{Database, DatabaseConnection};
 
 #[tokio::main]
 async fn main() {
-    // Example usage with a file
-    // let config = Config::from_env();
+    let config = Config::from_env();
+    let db: DatabaseConnection = Database::connect(&*config.db_url.as_ref().unwrap())
+        .await
+        .unwrap();
 
-    // let args: Vec<String> = std::env::args().collect();
-    // if args.len() < 2 {
-    //     eprintln!("Usage: {} <file_path>", args[0]);
-    //     std::process::exit(1);
-    // }
-    // let file_path = &args[1];
+    if db.ping().await.is_ok() {
+        println!("Connected to the database");
+    } else {
+        println!("Could not connect to the database");
+    }
 
-    // get_file_and_upload(file_path, &config).await;
-    // tracing_subscriber::fmt::init();
-    // let client = Client::try_default().await.expect("Error creating client");
-    // let api = Api::<Pod>::default_namespaced(client);
-    // let use_watchlist = std::env::var("WATCHLIST")
-    //     .map(|s| s == "1")
-    //     .unwrap_or(false);
-    // let wc = if use_watchlist {
-    //     // requires WatchList feature gate on 1.27 or later
-    //     watcher::Config::default().streaming_lists()
-    // } else {
-    //     watcher::Config::default()
-    // };
+    // Run migrations
+    Migrator::up(&db, None)
+        .await
+        .expect("Failed to run migrations");
 
-    // watcher(api, wc)
-    //     .applied_objects()
-    //     .default_backoff()
-    //     .try_for_each(|p| async move {
-    //         info!("saw {}", p.name_any());
-    //         if let Some(unready_reason) = pod_unready(&p) {
-    //             warn!("{}", unready_reason);
-    //         }
-    //         Ok(())
-    //     })
-    //     .await
-    //     .expect("watch failed");
+    println!("Starting server...");
 
-    get_pods_from_namespace().await.unwrap();
+    // get_pods_from_namespace().await.unwrap(); // Gets pods from a namespace
+    // get_file_and_upload().await; // Uploads a file to S3
+    let app: Router = Router::new()
+        .nest("/api/submissions", submissions::views::router(db))
+        .route("/healthz", get(common::views::healthz));
+
+    let addr: std::net::SocketAddr = "0.0.0.0:3000".parse().unwrap();
+    println!("Listening on {}", addr);
+
+    // Run the server (correct axum usage without `hyper::Server`)
+    axum::serve(tokio::net::TcpListener::bind(addr).await.unwrap(), app)
+        .await
+        .unwrap();
 }
 
-pub async fn get_file_and_upload(file_path: &str, config: &Config) {
+pub async fn get_file_and_upload() {
     // Opens file and gets the file name and sends to S3
+    let config = Config::from_env();
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 2 {
+        eprintln!("Usage: {} <file_path>", args[0]);
+        std::process::exit(1);
+    }
+    let file_path = &args[1];
 
     let file_name = file_path.split('/').last().unwrap();
 

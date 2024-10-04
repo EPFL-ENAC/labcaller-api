@@ -3,7 +3,8 @@ WORKDIR /app
 
 FROM chef AS planner
 COPY ./src /app/src
-COPY Cargo.lock Cargo.toml /app
+COPY ./migration /app/migration
+COPY Cargo.lock Cargo.toml /app/
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
@@ -14,7 +15,8 @@ RUN cargo chef cook --release --recipe-path recipe.json
 # Build application
 #COPY . .
 COPY ./src /app/src
-COPY Cargo.lock Cargo.toml /app
+COPY ./migration /app/migration
+COPY Cargo.lock Cargo.toml /app/
 
 RUN cargo build --release --bin labcaller-api
 
