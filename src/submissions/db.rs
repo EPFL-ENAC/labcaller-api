@@ -1,4 +1,3 @@
-use chrono::NaiveDate;
 use chrono::NaiveDateTime;
 use sea_orm::entity::prelude::*;
 use utoipa::ToSchema;
@@ -14,7 +13,7 @@ pub struct Model {
     pub processing_has_started: bool,
     pub processing_success: bool,
     pub comment: Option<String>,
-    pub created_on: Option<NaiveDate>,
+    pub created_on: NaiveDateTime,
     pub last_updated: NaiveDateTime,
 }
 
