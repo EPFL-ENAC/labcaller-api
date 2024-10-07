@@ -1,3 +1,4 @@
+use crate::common::auth::Role;
 use crate::common::filter::{apply_filters, parse_range};
 use crate::common::models::FilterOptions;
 use crate::common::pagination::calculate_content_range;
@@ -6,15 +7,20 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    routing, Json, Router,
+    routing, Extension, Json, Router,
+};
+use axum_keycloak_auth::{
+    decode::KeycloakToken, error::AuthError, expect_role, instance::KeycloakAuthInstance,
+    layer::KeycloakAuthLayer, PassthroughMode, Url,
 };
 use sea_orm::{
     query::*, ActiveModelTrait, DatabaseConnection, DeleteResult, EntityTrait, IntoActiveModel,
     ModelTrait, SqlErr,
 };
+use std::sync::Arc;
 use uuid::Uuid;
 
-pub fn router(db: DatabaseConnection) -> Router {
+pub fn router(db: DatabaseConnection, keycloak_auth_instance: Arc<KeycloakAuthInstance>) -> Router {
     Router::new()
         .route("/", routing::get(get_all).post(create_one))
         .route(
@@ -22,6 +28,15 @@ pub fn router(db: DatabaseConnection) -> Router {
             routing::get(get_one).put(update_one).delete(delete_one),
         )
         .with_state(db)
+        .layer(
+            KeycloakAuthLayer::<Role>::builder()
+                .instance(keycloak_auth_instance)
+                .passthrough_mode(PassthroughMode::Block)
+                .persist_raw_claims(false)
+                .expected_audiences(vec![String::from("account")])
+                .required_roles(vec![Role::Administrator])
+                .build(),
+        )
 }
 
 const RESOURCE_NAME: &str = "submissions";
@@ -137,6 +152,7 @@ pub async fn get_one(
     State(db): State<DatabaseConnection>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<super::models::Submission>, (StatusCode, Json<String>)> {
+    // use crate::k8s::services::get_pods_from_namespace;
     let obj = super::db::Entity::find_by_id(id)
         .one(&db)
         .await
@@ -156,8 +172,6 @@ pub async fn update_one(
     Path(id): Path<Uuid>,
     Json(payload): Json<super::models::SubmissionUpdate>,
 ) -> impl IntoResponse {
-    println!("Update one {:?} {:?}", payload.name, payload.comment);
-
     let obj: super::db::ActiveModel = super::db::Entity::find_by_id(id)
         .one(&db)
         .await
@@ -169,7 +183,6 @@ pub async fn update_one(
 
     let obj: super::db::Model = obj.update(&db).await.unwrap();
 
-    println!("Updated obj {:?}", obj);
     let response_obj: super::models::Submission = obj.into();
 
     Json(response_obj)

@@ -4,12 +4,13 @@ mod k8s;
 mod s3;
 mod submissions;
 
-// use crate::k8s::services::get_pods_from_namespace;
 use crate::s3::services::upload_stream;
 use axum::{routing::get, Router};
+use axum_keycloak_auth::{instance::KeycloakAuthInstance, instance::KeycloakConfig, Url};
 use config::Config;
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{Database, DatabaseConnection};
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() {
@@ -31,10 +32,19 @@ async fn main() {
 
     println!("Starting server...");
 
+    let keycloak_auth_instance: Arc<KeycloakAuthInstance> = Arc::new(KeycloakAuthInstance::new(
+        KeycloakConfig::builder()
+            .server(Url::parse(&config.keycloak_url).unwrap())
+            .realm(String::from(&config.keycloak_realm))
+            .build(),
+    ));
     // get_pods_from_namespace().await.unwrap(); // Gets pods from a namespace
     // get_file_and_upload().await; // Uploads a file to S3
     let app: Router = Router::new()
-        .nest("/api/submissions", submissions::views::router(db))
+        .nest(
+            "/api/submissions",
+            submissions::views::router(db, keycloak_auth_instance),
+        )
         .route("/healthz", get(common::views::healthz))
         .route("/api/config", get(common::views::get_ui_config));
 
