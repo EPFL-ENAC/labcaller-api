@@ -151,6 +151,7 @@ pub async fn update_one(
 ) -> impl IntoResponse {
     // ) -> Result<Json<super::models::SubmissionReadOne>, (StatusCode, Json<String>)> {
     println!("Update one {:?} {:?}", payload.name, payload.comment);
+
     let update_object: super::db::ActiveModel = payload.into();
 
     let obj = super::db::Entity::find_by_id(id)

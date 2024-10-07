@@ -1,6 +1,10 @@
 use super::db::ActiveModel;
 use chrono::NaiveDateTime;
+<<<<<<< HEAD
 use sea_orm::{DeriveIntoActiveModel, FromQueryResult, InsertResult, NotSet, Set};
+=======
+use sea_orm::{DeriveIntoActiveModel, FromQueryResult, InsertResult};
+>>>>>>> 9e9eebb08ece8fbf68a9e4a659b5984768307701
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_with::rust::double_option;
 use utoipa::ToSchema;
@@ -77,16 +81,6 @@ impl From<SubmissionUpdate> for ActiveModel {
     }
 }
 
-// // Custom deserialization logic for double option fields
-// fn deserialize_double_option<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
-// where
-//     D: Deserializer<'de>,
-// {
-//     let opt = double_option::deserialize(deserializer)?;
-
-//     // Convert Some(None) to None to exclude from deserialization
-//     Ok(opt.filter(|inner| inner.is_some()))
-// }
 #[derive(ToSchema, Serialize, FromQueryResult)]
 pub struct SubmissionReadOne {
     id: Uuid,
