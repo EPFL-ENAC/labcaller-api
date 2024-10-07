@@ -2,22 +2,25 @@ use crate::common::filter::{apply_filters, parse_range};
 use crate::common::models::FilterOptions;
 use crate::common::pagination::calculate_content_range;
 use crate::common::sort::generic_sort;
-use axum::http::{response, StatusCode};
-use axum::response::IntoResponse;
 use axum::{
-    debug_handler,
     extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
     routing, Json, Router,
 };
-use sea_orm::{query::*, DatabaseConnection, DbErr, IntoActiveModel, SqlErr, SqlxError};
-use sea_orm::{EntityTrait, RuntimeErr};
-use std::borrow::Cow;
+use sea_orm::{
+    query::*, ActiveModelTrait, DatabaseConnection, DeleteResult, EntityTrait, IntoActiveModel,
+    ModelTrait, SqlErr,
+};
 use uuid::Uuid;
 
 pub fn router(db: DatabaseConnection) -> Router {
     Router::new()
         .route("/", routing::get(get_all).post(create_one))
-        .route("/:id", routing::get(get_one).put(update_one))
+        .route(
+            "/:id",
+            routing::get(get_one).put(update_one).delete(delete_one),
+        )
         .with_state(db)
 }
 
@@ -77,10 +80,15 @@ pub async fn get_all(
     (headers, Json(response_objs))
 }
 
+#[utoipa::path(
+    post,
+    path = format!("/api/{}", RESOURCE_NAME),
+    responses((status = CREATED, body = super::models::Submission))
+)]
 pub async fn create_one(
     State(db): State<DatabaseConnection>,
     Json(payload): Json<super::models::SubmissionCreate>,
-) -> Result<(StatusCode, Json<super::models::SubmissionReadOne>), (StatusCode, Json<String>)> {
+) -> Result<(StatusCode, Json<super::models::Submission>), (StatusCode, Json<String>)> {
     let new_obj = super::db::Model {
         id: uuid::Uuid::new_v4(),
         name: payload.name,
@@ -94,7 +102,7 @@ pub async fn create_one(
 
     match super::db::Entity::insert(new_obj).exec(&db).await {
         Ok(insert_result) => {
-            let response_obj: super::models::SubmissionReadOne =
+            let response_obj: super::models::Submission =
                 super::db::Entity::find_by_id(insert_result.last_insert_id)
                     .one(&db)
                     .await
@@ -123,13 +131,12 @@ pub async fn create_one(
 #[utoipa::path(
     get,
     path = format!("/api/{}/{{id}}", RESOURCE_NAME),
-    responses((status = OK, body = super::models::SubmissionReadOne))
+    responses((status = OK, body = super::models::Submission))
 )]
-#[debug_handler]
 pub async fn get_one(
     State(db): State<DatabaseConnection>,
     Path(id): Path<Uuid>,
-) -> Result<Json<super::models::SubmissionReadOne>, (StatusCode, Json<String>)> {
+) -> Result<Json<super::models::Submission>, (StatusCode, Json<String>)> {
     let obj = super::db::Entity::find_by_id(id)
         .one(&db)
         .await
@@ -142,34 +149,50 @@ pub async fn get_one(
 #[utoipa::path(
     put,
     path = format!("/api/{}/{{id}}", RESOURCE_NAME),
-    responses((status = OK, body = super::models::SubmissionReadOne))
+    responses((status = OK, body = super::models::Submission))
 )]
 pub async fn update_one(
     State(db): State<DatabaseConnection>,
     Path(id): Path<Uuid>,
     Json(payload): Json<super::models::SubmissionUpdate>,
 ) -> impl IntoResponse {
-    // ) -> Result<Json<super::models::SubmissionReadOne>, (StatusCode, Json<String>)> {
     println!("Update one {:?} {:?}", payload.name, payload.comment);
 
-    let update_object: super::db::ActiveModel = payload.into();
+    let obj: super::db::ActiveModel = super::db::Entity::find_by_id(id)
+        .one(&db)
+        .await
+        .unwrap()
+        .expect("Failed to find object")
+        .into();
 
+    let obj: super::db::ActiveModel = payload.merge_into_activemodel(obj);
+
+    let obj: super::db::Model = obj.update(&db).await.unwrap();
+
+    println!("Updated obj {:?}", obj);
+    let response_obj: super::models::Submission = obj.into();
+
+    Json(response_obj)
+}
+
+// Delete one
+#[utoipa::path(
+    delete,
+    path = format!("/api/{}/{{id}}", RESOURCE_NAME),
+    responses((status = NO_CONTENT))
+)]
+pub async fn delete_one(State(db): State<DatabaseConnection>, Path(id): Path<Uuid>) -> StatusCode {
     let obj = super::db::Entity::find_by_id(id)
         .one(&db)
         .await
         .unwrap()
         .expect("Failed to find object");
 
-    // Update obj with the new values from update_object
+    let res: DeleteResult = obj.delete(&db).await.expect("Failed to delete object");
 
-    // .unwrap()
-    // .unwrap();
+    if res.rows_affected == 0 {
+        return StatusCode::NOT_FOUND;
+    }
 
-    // Update the object
-    // obj.update(&db).await;
-
-    println!("Update one {:?}", obj);
-    println!("Update object {:?}", update_object);
-
-    ()
+    StatusCode::NO_CONTENT
 }
