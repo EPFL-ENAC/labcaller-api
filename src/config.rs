@@ -1,8 +1,8 @@
 use dotenvy::dotenv;
 use serde::Deserialize;
 use std::env;
-
-#[derive(Deserialize, Debug)]
+use std::path::PathBuf;
+#[derive(Deserialize)]
 pub struct Config {
     pub db_host: String,
     pub db_port: u16,
@@ -17,11 +17,11 @@ pub struct Config {
     pub s3_access_key: String,
     pub s3_secret_key: String,
     pub keycloak_ui_id: String,
-    // pub keycloak_api_id: String,
-    // pub keycloak_api_secret: String,
     pub keycloak_url: String,
     pub keycloak_realm: String,
     pub deployment: String,
+    pub _kube_config: PathBuf,
+    pub kube_namespace: String,
 }
 
 impl Config {
@@ -46,13 +46,14 @@ impl Config {
             s3_access_key: env::var("S3_ACCESS_KEY").expect("S3_ACCESS_KEY"),
             s3_secret_key: env::var("S3_SECRET_KEY").expect("S3_SECRET_KEY"),
             keycloak_ui_id: env::var("KEYCLOAK_UI_ID").expect("KEYCLOAK_UI_ID must be set"),
-            // keycloak_api_id: env::var("KEYCLOAK_API_ID").expect("KEYCLOAK_API_ID must be set"),
-            // keycloak_api_secret: env::var("KEYCLOAK_API_SECRET")
-            // .expect("KEYCLOAK_API_SECRET must be set"),
             keycloak_url: env::var("KEYCLOAK_URL").expect("KEYCLOAK_URL must be set"),
             keycloak_realm: env::var("KEYCLOAK_REALM").expect("KEYCLOAK_REALM must be set"),
             deployment: env::var("DEPLOYMENT")
                 .expect("DEPLOYMENT must be set, this can be local, dev, stage, or prod"),
+            _kube_config: env::var("KUBECONFIG")
+                .expect("KUBECONFIG must be set")
+                .into(),
+            kube_namespace: env::var("KUBE_NAMESPACE").expect("KUBE_NAMESPACE must be set"),
             db_prefix,
             db_url,
         };

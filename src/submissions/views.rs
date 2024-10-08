@@ -3,15 +3,15 @@ use crate::common::filter::{apply_filters, parse_range};
 use crate::common::models::FilterOptions;
 use crate::common::pagination::calculate_content_range;
 use crate::common::sort::generic_sort;
+use crate::k8s::services::get_pods_from_namespace;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    routing, Extension, Json, Router,
+    routing, Json, Router,
 };
 use axum_keycloak_auth::{
-    decode::KeycloakToken, error::AuthError, expect_role, instance::KeycloakAuthInstance,
-    layer::KeycloakAuthLayer, PassthroughMode, Url,
+    instance::KeycloakAuthInstance, layer::KeycloakAuthLayer, PassthroughMode,
 };
 use sea_orm::{
     query::*, ActiveModelTrait, DatabaseConnection, DeleteResult, EntityTrait, IntoActiveModel,
@@ -152,7 +152,8 @@ pub async fn get_one(
     State(db): State<DatabaseConnection>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<super::models::Submission>, (StatusCode, Json<String>)> {
-    // use crate::k8s::services::get_pods_from_namespace;
+    let _ = get_pods_from_namespace().await.unwrap();
+
     let obj = super::db::Entity::find_by_id(id)
         .one(&db)
         .await
