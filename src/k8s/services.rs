@@ -6,7 +6,7 @@ use kube::{
     Client, Config as KubeConfig,
 };
 use secrecy::Secret;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
@@ -126,11 +126,25 @@ pub async fn get_pods_from_namespace() -> Result<(), Box<dyn Error>> {
 
     match pods.list(&lp).await {
         Ok(pod_list) => {
-            for p in pod_list {
-                println!("Found Pod: {}", p.metadata.name.clone().unwrap_or_default());
-                let (submission_id, run_id): (Uuid, u64) =
-                    deconstruct_pod_name(&p.metadata.name.unwrap_or_default());
-                println!("Submission ID: {}, Run ID: {}", submission_id, run_id);
+            let pods: Vec<PodName> = pod_list
+                .into_iter()
+                .map(|pod| PodName::from(pod.metadata.name.clone().unwrap()))
+                .collect();
+
+            println!(
+                "Found {} pods, with {} for this deployment",
+                pods.len(),
+                pods.clone()
+                    .into_iter()
+                    .map(|pod| pod.prefix)
+                    .filter(|prefix| *prefix == app_config.pod_prefix)
+                    .count()
+            );
+            for pod in pods {
+                if pod.prefix != app_config.pod_prefix {
+                    continue;
+                }
+                println!("Found Pod: {:?}", pod);
             }
         }
         Err(e) => {
@@ -141,29 +155,58 @@ pub async fn get_pods_from_namespace() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn deconstruct_pod_name(pod_name: &str) -> (Uuid, u64) {
-    // Structure is deepreef-<Submission ID (UUID4)>-<randomID>-0-0
-    // UUID contains structure with - at 8, 13, 18, 23
-
-    // Split the pod name by the '-' character.
-    let parts: Vec<&str> = pod_name.split('-').collect();
-
-    // Check if we have enough parts
-    if parts.len() < 7 {
-        println!("Pod name does not have the expected structure");
-    }
-
-    // Extract the UUID parts and join them back together to form the full UUID string.
-    let uuid_str = format!(
-        "{}-{}-{}-{}-{}",
-        parts[1], parts[2], parts[3], parts[4], parts[5]
-    );
-
-    // Parse the UUID
-    let submission_id = Uuid::parse_str(&uuid_str).unwrap();
-
-    // Parse the randomID as u64
-    let random_id: u64 = parts[6].parse().unwrap();
-
-    (submission_id, random_id)
+#[derive(Serialize, Debug, Clone)]
+pub struct PodName {
+    prefix: String,
+    submission_id: Uuid,
+    run_id: u64,
 }
+
+impl From<String> for PodName {
+    fn from(pod_name: String) -> Self {
+        let parts: Vec<&str> = pod_name.split('-').collect();
+        if parts.len() < 7 {
+            println!("Pod name does not have the expected structure");
+        }
+        let uuid_str = format!(
+            "{}-{}-{}-{}-{}",
+            parts[1], parts[2], parts[3], parts[4], parts[5]
+        );
+        let submission_id = Uuid::parse_str(&uuid_str).unwrap();
+        let run_id: u64 = parts[6].parse().unwrap();
+        let prefix: String = parts[0].to_string();
+
+        PodName {
+            prefix,
+            submission_id,
+            run_id,
+        }
+    }
+}
+
+// fn deconstruct_pod_name(pod_name: &str) -> (Uuid, u64) {
+//     // Structure is deepreef-<Submission ID (UUID4)>-<randomID>-0-0
+//     // UUID contains structure with - at 8, 13, 18, 23
+
+//     // Split the pod name by the '-' character.
+//     let parts: Vec<&str> = pod_name.split('-').collect();
+
+//     // Check if we have enough parts
+//     if parts.len() < 7 {
+//         println!("Pod name does not have the expected structure");
+//     }
+
+//     // Extract the UUID parts and join them back together to form the full UUID string.
+//     let uuid_str = format!(
+//         "{}-{}-{}-{}-{}",
+//         parts[1], parts[2], parts[3], parts[4], parts[5]
+//     );
+
+//     // Parse the UUID
+//     let submission_id = Uuid::parse_str(&uuid_str).unwrap();
+
+//     // Parse the randomID as u64
+//     let random_id: u64 = parts[6].parse().unwrap();
+
+//     (submission_id, random_id)
+// }

@@ -12,7 +12,7 @@ pub struct Config {
     pub db_prefix: String,
     pub db_url: Option<String>,
     pub s3_url: String,
-    pub s3_prefix: String,
+    pub app_name: String,
     pub s3_bucket: String,
     pub s3_access_key: String,
     pub s3_secret_key: String,
@@ -22,6 +22,9 @@ pub struct Config {
     pub deployment: String,
     pub _kube_config: PathBuf,
     pub kube_namespace: String,
+
+    pub s3_prefix: String,  // Prefix within the bucket, ie. labcaller-dev
+    pub pod_prefix: String, // What is prefixed to the pod name, ie. labcaller-dev
 }
 
 impl Config {
@@ -30,6 +33,18 @@ impl Config {
 
         let db_url = env::var("DB_URL").ok();
         let db_prefix = env::var("DB_PREFIX").unwrap_or_else(|_| "postgresql".to_string());
+        let s3_prefix = format!(
+            "{}-{}",
+            env::var("APP_NAME").expect("APP_NAME must be set"),
+            env::var("DEPLOYMENT")
+                .expect("DEPLOYMENT must be set, this can be local, dev, stage, or prod")
+        );
+        let pod_prefix = format!(
+            "{}.{}",
+            env::var("APP_NAME").expect("APP_NAME must be set"),
+            env::var("DEPLOYMENT")
+                .expect("DEPLOYMENT must be set, this can be local, dev, stage, or prod")
+        );
 
         let config = Config {
             db_host: env::var("DB_HOST").expect("DB_HOST must be set"),
@@ -41,7 +56,7 @@ impl Config {
             db_password: env::var("DB_PASSWORD").expect("DB_PASSWORD must be set"),
             db_name: env::var("DB_NAME").expect("DB_NAME must be set"),
             s3_url: env::var("S3_URL").expect("S3_URL must be set"),
-            s3_prefix: env::var("S3_PREFIX").expect("S3_PREFIX must be set"),
+            app_name: env::var("APP_NAME").expect("APP_NAME must be set"),
             s3_bucket: env::var("S3_BUCKET_ID").expect("S3_BUCKET must be set"),
             s3_access_key: env::var("S3_ACCESS_KEY").expect("S3_ACCESS_KEY"),
             s3_secret_key: env::var("S3_SECRET_KEY").expect("S3_SECRET_KEY"),
@@ -56,6 +71,8 @@ impl Config {
             kube_namespace: env::var("KUBE_NAMESPACE").expect("KUBE_NAMESPACE must be set"),
             db_prefix,
             db_url,
+            s3_prefix,
+            pod_prefix,
         };
 
         if config.db_url.is_none() {

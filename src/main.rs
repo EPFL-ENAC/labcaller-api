@@ -31,7 +31,11 @@ async fn main() {
         .await
         .expect("Failed to run migrations");
 
-    println!("Starting server...");
+    println!(
+        "Starting server {} ({} deployment) ...",
+        config.app_name,
+        config.deployment.to_uppercase()
+    );
 
     let keycloak_auth_instance: Arc<KeycloakAuthInstance> = Arc::new(KeycloakAuthInstance::new(
         KeycloakConfig::builder()
@@ -64,7 +68,6 @@ async fn main() {
         }
         _ = tokio::spawn(async {
             loop {
-                // println!("Hello");
                 crate::k8s::services::get_pods_from_namespace().await.unwrap();
                 tokio::time::sleep(Duration::from_secs(300)).await;
             }
