@@ -64,8 +64,9 @@ async fn main() {
         }
         _ = tokio::spawn(async {
             loop {
-                println!("Hello");
-                tokio::time::sleep(Duration::from_secs(30)).await;
+                // println!("Hello");
+                crate::k8s::services::get_pods_from_namespace().await.unwrap();
+                tokio::time::sleep(Duration::from_secs(300)).await;
             }
         }) => {
             println!("Background task finished unexpectedly.");

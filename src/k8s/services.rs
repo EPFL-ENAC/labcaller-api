@@ -10,6 +10,7 @@ use serde::Deserialize;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
+use uuid::Uuid;
 
 #[derive(Deserialize)]
 struct TokenResponse {
@@ -17,7 +18,6 @@ struct TokenResponse {
 }
 
 async fn refresh_oidc_token(refresh_token: &str) -> Result<String, Box<dyn Error>> {
-    println!("Refreshing OIDC token...");
     let client = reqwest::Client::new();
     let params = [
         ("grant_type", "refresh_token"),
@@ -32,7 +32,7 @@ async fn refresh_oidc_token(refresh_token: &str) -> Result<String, Box<dyn Error
         .await?;
 
     if res.status().is_success() {
-        println!("Successfully refreshed OIDC token.");
+        println!("Refreshed OIDC token");
         let token_response: TokenResponse = res.json().await?;
         Ok(token_response.id_token)
     } else {
@@ -42,14 +42,12 @@ async fn refresh_oidc_token(refresh_token: &str) -> Result<String, Box<dyn Error
 }
 
 fn extract_refresh_token(kubeconfig: &Kubeconfig) -> Option<String> {
-    println!("Extracting refresh token from kubeconfig...");
     for named_auth_info in &kubeconfig.auth_infos {
         if let Some(auth_info) = &named_auth_info.auth_info {
             if let Some(auth_provider) = &auth_info.auth_provider {
                 if auth_provider.name == "oidc" {
                     // Directly access the config HashMap
                     if let Some(refresh_token) = auth_provider.config.get("refresh-token") {
-                        println!("Refresh token found.");
                         return Some(refresh_token.clone());
                     }
                 }
@@ -61,18 +59,15 @@ fn extract_refresh_token(kubeconfig: &Kubeconfig) -> Option<String> {
 }
 
 pub async fn get_pods_from_namespace() -> Result<(), Box<dyn Error>> {
-    println!("Starting to get pods from namespace...");
     let app_config = Config::from_env();
 
     // Read and parse the kubeconfig file
-    println!("Reading kubeconfig from {:?}", app_config._kube_config);
     let mut kubeconfig = {
         let mut file = File::open(&app_config._kube_config)?;
         let mut yaml_str = String::new();
         file.read_to_string(&mut yaml_str)?;
         serde_yaml::from_str::<Kubeconfig>(&yaml_str)?
     };
-    println!("Successfully read kubeconfig.");
 
     let refresh_token =
         extract_refresh_token(&kubeconfig).ok_or("Failed to find refresh token in kubeconfig")?;
@@ -81,13 +76,11 @@ pub async fn get_pods_from_namespace() -> Result<(), Box<dyn Error>> {
     let new_id_token = refresh_oidc_token(&refresh_token).await?;
 
     // Update the kubeconfig's auth_info
-    println!("Updating kubeconfig with new ID token.");
     // Find the current context name
     let current_context_name = kubeconfig
         .current_context
         .clone()
         .ok_or("No current context set in kubeconfig")?;
-    println!("Current context: {}", current_context_name);
 
     // Find the context that matches the current context name
     let context = kubeconfig
@@ -104,7 +97,6 @@ pub async fn get_pods_from_namespace() -> Result<(), Box<dyn Error>> {
 
     // Get the name of the user associated with the context
     let auth_info_name = &context_context.user;
-    println!("Auth info name: {}", auth_info_name);
 
     // Find the auth_info with the matching name
     let auth_info = kubeconfig
@@ -122,25 +114,23 @@ pub async fn get_pods_from_namespace() -> Result<(), Box<dyn Error>> {
     // Remove the auth_provider and set the token
     auth_info_info.auth_provider = None;
     auth_info_info.token = Some(Secret::new(new_id_token));
-    println!("Updated auth_info with new token.");
 
     // Build the Kubernetes client with the updated kubeconfig
-    println!("Building Kubernetes client...");
     let config = KubeConfig::from_custom_kubeconfig(kubeconfig, &Default::default()).await?;
 
     let client = Client::try_from(config)?;
-    println!("Kubernetes client created successfully.");
 
-    // Interact with the Kubernetes API
-    println!("Listing pods in namespace: {}", app_config.kube_namespace);
+    // Get pods from RCP
     let pods: Api<Pod> = Api::namespaced(client, &app_config.kube_namespace);
     let lp = ListParams::default();
 
     match pods.list(&lp).await {
         Ok(pod_list) => {
-            println!("Successfully retrieved pods:");
             for p in pod_list {
-                println!("Found Pod: {}", p.metadata.name.unwrap_or_default());
+                println!("Found Pod: {}", p.metadata.name.clone().unwrap_or_default());
+                let (submission_id, run_id): (Uuid, u64) =
+                    deconstruct_pod_name(&p.metadata.name.unwrap_or_default());
+                println!("Submission ID: {}, Run ID: {}", submission_id, run_id);
             }
         }
         Err(e) => {
@@ -149,4 +139,31 @@ pub async fn get_pods_from_namespace() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+fn deconstruct_pod_name(pod_name: &str) -> (Uuid, u64) {
+    // Structure is deepreef-<Submission ID (UUID4)>-<randomID>-0-0
+    // UUID contains structure with - at 8, 13, 18, 23
+
+    // Split the pod name by the '-' character.
+    let parts: Vec<&str> = pod_name.split('-').collect();
+
+    // Check if we have enough parts
+    if parts.len() < 7 {
+        println!("Pod name does not have the expected structure");
+    }
+
+    // Extract the UUID parts and join them back together to form the full UUID string.
+    let uuid_str = format!(
+        "{}-{}-{}-{}-{}",
+        parts[1], parts[2], parts[3], parts[4], parts[5]
+    );
+
+    // Parse the UUID
+    let submission_id = Uuid::parse_str(&uuid_str).unwrap();
+
+    // Parse the randomID as u64
+    let random_id: u64 = parts[6].parse().unwrap();
+
+    (submission_id, random_id)
 }
