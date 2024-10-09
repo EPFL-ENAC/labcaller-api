@@ -1,3 +1,4 @@
+use super::models::PodName;
 use crate::config::Config;
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
@@ -6,11 +7,10 @@ use kube::{
     Client, Config as KubeConfig,
 };
 use secrecy::Secret;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
-use uuid::Uuid;
 
 #[derive(Deserialize)]
 struct TokenResponse {
@@ -154,59 +154,3 @@ pub async fn get_pods_from_namespace() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
-
-#[derive(Serialize, Debug, Clone)]
-pub struct PodName {
-    prefix: String,
-    submission_id: Uuid,
-    run_id: u64,
-}
-
-impl From<String> for PodName {
-    fn from(pod_name: String) -> Self {
-        let parts: Vec<&str> = pod_name.split('-').collect();
-        if parts.len() < 7 {
-            println!("Pod name does not have the expected structure");
-        }
-        let uuid_str = format!(
-            "{}-{}-{}-{}-{}",
-            parts[1], parts[2], parts[3], parts[4], parts[5]
-        );
-        let submission_id = Uuid::parse_str(&uuid_str).unwrap();
-        let run_id: u64 = parts[6].parse().unwrap();
-        let prefix: String = parts[0].to_string();
-
-        PodName {
-            prefix,
-            submission_id,
-            run_id,
-        }
-    }
-}
-
-// fn deconstruct_pod_name(pod_name: &str) -> (Uuid, u64) {
-//     // Structure is deepreef-<Submission ID (UUID4)>-<randomID>-0-0
-//     // UUID contains structure with - at 8, 13, 18, 23
-
-//     // Split the pod name by the '-' character.
-//     let parts: Vec<&str> = pod_name.split('-').collect();
-
-//     // Check if we have enough parts
-//     if parts.len() < 7 {
-//         println!("Pod name does not have the expected structure");
-//     }
-
-//     // Extract the UUID parts and join them back together to form the full UUID string.
-//     let uuid_str = format!(
-//         "{}-{}-{}-{}-{}",
-//         parts[1], parts[2], parts[3], parts[4], parts[5]
-//     );
-
-//     // Parse the UUID
-//     let submission_id = Uuid::parse_str(&uuid_str).unwrap();
-
-//     // Parse the randomID as u64
-//     let random_id: u64 = parts[6].parse().unwrap();
-
-//     (submission_id, random_id)
-// }
