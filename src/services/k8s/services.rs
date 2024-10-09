@@ -1,5 +1,6 @@
 use super::models::PodName;
 use crate::config::Config;
+use anyhow::{anyhow, Result};
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
     api::{Api, ListParams},
@@ -8,7 +9,6 @@ use kube::{
 };
 use secrecy::Secret;
 use serde::Deserialize;
-use std::error::Error;
 use std::fs::File;
 use std::io::Read;
 
@@ -17,7 +17,7 @@ struct TokenResponse {
     id_token: String,
 }
 
-async fn refresh_oidc_token(refresh_token: &str) -> Result<String, Box<dyn Error>> {
+async fn refresh_oidc_token(refresh_token: &str) -> Result<String> {
     let client = reqwest::Client::new();
     let params = [
         ("grant_type", "refresh_token"),
@@ -37,7 +37,7 @@ async fn refresh_oidc_token(refresh_token: &str) -> Result<String, Box<dyn Error
         Ok(token_response.id_token)
     } else {
         let error_text = res.text().await?;
-        Err(format!("Failed to refresh token: {}", error_text).into())
+        Err(anyhow!("Failed to refresh token: {}", error_text))
     }
 }
 
@@ -58,7 +58,7 @@ fn extract_refresh_token(kubeconfig: &Kubeconfig) -> Option<String> {
     None
 }
 
-pub async fn get_pods(match_deployment: bool) -> Result<Option<Vec<PodName>>, Box<dyn Error>> {
+pub async fn get_pods(match_deployment: bool) -> Result<Option<Vec<PodName>>> {
     let app_config = Config::from_env();
 
     // Read and parse the kubeconfig file
@@ -69,8 +69,8 @@ pub async fn get_pods(match_deployment: bool) -> Result<Option<Vec<PodName>>, Bo
         serde_yaml::from_str::<Kubeconfig>(&yaml_str)?
     };
 
-    let refresh_token =
-        extract_refresh_token(&kubeconfig).ok_or("Failed to find refresh token in kubeconfig")?;
+    let refresh_token = extract_refresh_token(&kubeconfig)
+        .ok_or_else(|| anyhow!("Failed to find refresh token in kubeconfig"))?;
 
     // Refresh the OIDC token
     let new_id_token = refresh_oidc_token(&refresh_token).await?;
@@ -80,20 +80,20 @@ pub async fn get_pods(match_deployment: bool) -> Result<Option<Vec<PodName>>, Bo
     let current_context_name = kubeconfig
         .current_context
         .clone()
-        .ok_or("No current context set in kubeconfig")?;
+        .ok_or_else(|| anyhow!("No current context set in kubeconfig"))?;
 
     // Find the context that matches the current context name
     let context = kubeconfig
         .contexts
         .iter()
         .find(|ctx| ctx.name == current_context_name)
-        .ok_or("Failed to find current context in kubeconfig")?;
+        .ok_or_else(|| anyhow!("Failed to find current context in kubeconfig"))?;
 
     // Unwrap the context
     let context_context = context
         .context
         .as_ref()
-        .ok_or("Context is missing in NamedContext")?;
+        .ok_or_else(|| anyhow!("Context is missing in NamedContext"))?;
 
     // Get the name of the user associated with the context
     let auth_info_name = &context_context.user;
@@ -103,13 +103,13 @@ pub async fn get_pods(match_deployment: bool) -> Result<Option<Vec<PodName>>, Bo
         .auth_infos
         .iter_mut()
         .find(|ai| ai.name == *auth_info_name)
-        .ok_or("Failed to find auth_info in kubeconfig")?;
+        .ok_or_else(|| anyhow!("Failed to find auth_info in kubeconfig"))?;
 
     // Unwrap the auth_info
     let auth_info_info = auth_info
         .auth_info
         .as_mut()
-        .ok_or("AuthInfo is missing in NamedAuthInfo")?;
+        .ok_or_else(|| anyhow!("AuthInfo is missing in NamedAuthInfo"))?;
 
     // Remove the auth_provider and set the token
     auth_info_info.auth_provider = None;

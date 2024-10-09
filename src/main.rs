@@ -65,7 +65,7 @@ async fn main() {
                 eprintln!("Server error: {}", err);
             }
         }
-        _ = tokio::spawn(async {
+        _ = tokio::spawn(async move {
             loop {
                 crate::services::services::check_external_services().await;
                 tokio::time::sleep(Duration::from_secs(300)).await;

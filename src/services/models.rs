@@ -1,7 +1,8 @@
 use super::db::ActiveModel;
+use super::db::ServiceName;
 use chrono::NaiveDateTime;
 use sea_orm::JsonValue;
-use sea_orm::{DeriveIntoActiveModel, FromQueryResult, Set};
+use sea_orm::{FromQueryResult, Set};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -9,7 +10,7 @@ use uuid::Uuid;
 #[derive(ToSchema, Serialize, FromQueryResult)]
 pub struct Service {
     pub id: Uuid,
-    pub service_name: String,
+    pub service_name: ServiceName,
     pub is_online: bool,
     pub details: Option<JsonValue>,
     pub time_utc: NaiveDateTime,
@@ -27,9 +28,9 @@ impl From<super::db::Model> for Service {
     }
 }
 
-#[derive(ToSchema, Deserialize, Serialize, DeriveIntoActiveModel)]
+#[derive(ToSchema, Deserialize, Serialize)]
 pub struct ServiceCreate {
-    pub service_name: String,
+    pub service_name: ServiceName,
     pub is_online: bool,
     pub details: Option<JsonValue>,
 }
