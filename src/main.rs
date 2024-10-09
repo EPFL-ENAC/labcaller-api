@@ -11,6 +11,7 @@ use config::Config;
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{Database, DatabaseConnection};
 use std::sync::Arc;
+use std::time::Duration;
 
 #[tokio::main]
 async fn main() {
@@ -38,8 +39,8 @@ async fn main() {
             .realm(String::from(&config.keycloak_realm))
             .build(),
     ));
-    // get_pods_from_namespace().await.unwrap(); // Gets pods from a namespace
-    // get_file_and_upload().await; // Uploads a file to S3
+
+    // Set up your Axum app
     let app: Router = Router::new()
         .nest(
             "/api/submissions",
@@ -51,14 +52,28 @@ async fn main() {
     let addr: std::net::SocketAddr = "0.0.0.0:3000".parse().unwrap();
     println!("Listening on {}", addr);
 
-    // Run the server (correct axum usage without `hyper::Server`)
-    axum::serve(tokio::net::TcpListener::bind(addr).await.unwrap(), app)
-        .await
-        .unwrap();
+    // Run the server
+    let server = axum::serve(tokio::net::TcpListener::bind(addr).await.unwrap(), app);
+
+    // Wait for both the server and the background task to complete
+    tokio::select! {
+        res = server => {
+            if let Err(err) = res {
+                eprintln!("Server error: {}", err);
+            }
+        }
+        _ = tokio::spawn(async {
+            loop {
+                println!("Hello");
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
+        }) => {
+            println!("Background task finished unexpectedly.");
+        }
+    }
 }
 
 pub async fn get_file_and_upload() {
-    // Opens file and gets the file name and sends to S3
     let config = Config::from_env();
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
