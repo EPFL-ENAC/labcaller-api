@@ -58,7 +58,7 @@ fn extract_refresh_token(kubeconfig: &Kubeconfig) -> Option<String> {
     None
 }
 
-pub async fn get_pods_from_namespace() -> Result<(), Box<dyn Error>> {
+pub async fn get_pods(match_deployment: bool) -> Result<Option<Vec<PodName>>, Box<dyn Error>> {
     let app_config = Config::from_env();
 
     // Read and parse the kubeconfig file
@@ -123,34 +123,21 @@ pub async fn get_pods_from_namespace() -> Result<(), Box<dyn Error>> {
     // Get pods from RCP
     let pods: Api<Pod> = Api::namespaced(client, &app_config.kube_namespace);
     let lp = ListParams::default();
+    let pods: Vec<PodName> = pods
+        .list(&lp)
+        .await?
+        .into_iter()
+        .map(|pod| PodName::from(pod.metadata.name.clone().unwrap()))
+        .collect();
 
-    match pods.list(&lp).await {
-        Ok(pod_list) => {
-            let pods: Vec<PodName> = pod_list
-                .into_iter()
-                .map(|pod| PodName::from(pod.metadata.name.clone().unwrap()))
-                .collect();
-
-            println!(
-                "Found {} pods, with {} for this deployment",
-                pods.len(),
-                pods.clone()
-                    .into_iter()
-                    .map(|pod| pod.prefix)
-                    .filter(|prefix| *prefix == app_config.pod_prefix)
-                    .count()
-            );
-            for pod in pods {
-                if pod.prefix != app_config.pod_prefix {
-                    continue;
-                }
-                println!("Found Pod: {:?}", pod);
-            }
-        }
-        Err(e) => {
-            eprintln!("Error listing pods: {:?}", e);
-        }
+    // If match_deployment is true, filter out pods that don't match the deployment
+    if match_deployment {
+        Ok(Some(
+            pods.into_iter()
+                .filter(|pod| pod.prefix == app_config.pod_prefix)
+                .collect(),
+        ))
+    } else {
+        Ok(Some(pods))
     }
-
-    Ok(())
 }

@@ -3,7 +3,7 @@ use crate::common::filter::{apply_filters, parse_range};
 use crate::common::models::FilterOptions;
 use crate::common::pagination::calculate_content_range;
 use crate::common::sort::generic_sort;
-use crate::k8s::services::get_pods_from_namespace;
+use crate::services::k8s::services::get_pods;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -152,8 +152,6 @@ pub async fn get_one(
     State(db): State<DatabaseConnection>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<super::models::Submission>, (StatusCode, Json<String>)> {
-    let _ = get_pods_from_namespace().await.unwrap();
-
     let obj = super::db::Entity::find_by_id(id)
         .one(&db)
         .await

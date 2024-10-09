@@ -1,10 +1,9 @@
 mod common;
 mod config;
-mod k8s;
-mod s3;
+mod services;
 mod submissions;
 
-use crate::s3::services::upload_stream;
+use crate::services::s3::services::upload_stream;
 use axum::{routing::get, Router};
 use axum_keycloak_auth::{instance::KeycloakAuthInstance, instance::KeycloakConfig, Url};
 use config::Config;
@@ -48,7 +47,7 @@ async fn main() {
     let app: Router = Router::new()
         .nest(
             "/api/submissions",
-            submissions::views::router(db, keycloak_auth_instance),
+            submissions::views::router(db.clone(), keycloak_auth_instance),
         )
         .route("/healthz", get(common::views::healthz))
         .route("/api/config", get(common::views::get_ui_config));
@@ -68,7 +67,7 @@ async fn main() {
         }
         _ = tokio::spawn(async {
             loop {
-                crate::k8s::services::get_pods_from_namespace().await.unwrap();
+                crate::services::services::check_external_services().await;
                 tokio::time::sleep(Duration::from_secs(300)).await;
             }
         }) => {
