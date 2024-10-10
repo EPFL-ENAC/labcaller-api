@@ -1,10 +1,8 @@
 use super::db::{ActiveModel, Entity};
 use super::models::ServiceCreate;
 use crate::config::Config;
-use crate::services::db::ServiceName;
-use crate::services::k8s::models::PodName;
-use anyhow::Result;
-use sea_orm::{Database, DatabaseConnection, EntityTrait, JsonValue};
+use crate::external::db::ServiceName;
+use sea_orm::{Database, DatabaseConnection, EntityTrait};
 
 pub async fn check_external_services() {
     let config = Config::from_env();
@@ -13,7 +11,7 @@ pub async fn check_external_services() {
         .unwrap();
 
     // Fetch pods and handle the result
-    let pods_result = crate::services::k8s::services::get_pods(true).await;
+    let pods_result = crate::external::k8s::services::get_pods(true).await;
 
     let service: ActiveModel = match pods_result {
         Ok(Some(pods)) => {

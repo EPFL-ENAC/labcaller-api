@@ -1,9 +1,10 @@
 mod common;
 mod config;
-mod services;
+mod external;
 mod submissions;
+mod uploads;
 
-use crate::services::s3::services::upload_stream;
+use crate::external::s3::services::upload_stream;
 use axum::{routing::get, Router};
 use axum_keycloak_auth::{instance::KeycloakAuthInstance, instance::KeycloakConfig, Url};
 use config::Config;
@@ -67,7 +68,7 @@ async fn main() {
         }
         _ = tokio::spawn(async move {
             loop {
-                crate::services::services::check_external_services().await;
+                crate::external::services::check_external_services().await;
                 tokio::time::sleep(Duration::from_secs(300)).await;
             }
         }) => {

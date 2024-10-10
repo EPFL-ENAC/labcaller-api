@@ -2,6 +2,7 @@ pub use sea_orm_migration::prelude::*;
 
 mod m20240926_143036_create_submission_table;
 mod m20241009_142236_create_system_status_table;
+mod m20241010_073350_create_input_objects;
 
 pub struct Migrator;
 
@@ -11,6 +12,7 @@ impl MigratorTrait for Migrator {
         vec![
             Box::new(m20240926_143036_create_submission_table::Migration),
             Box::new(m20241009_142236_create_system_status_table::Migration),
+            Box::new(m20241010_073350_create_input_objects::Migration),
         ]
     }
 }
