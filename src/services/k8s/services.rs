@@ -17,7 +17,7 @@ struct TokenResponse {
     id_token: String,
 }
 
-async fn refresh_oidc_token(refresh_token: &str) -> Result<String> {
+async fn refresh_oidc_token(refresh_token: &str, idp_issuer_url: &str) -> Result<String> {
     let client = reqwest::Client::new();
     let params = [
         ("grant_type", "refresh_token"),
@@ -26,7 +26,7 @@ async fn refresh_oidc_token(refresh_token: &str) -> Result<String> {
     ];
 
     let res = client
-        .post("https://app.run.ai/auth/realms/rcpepfl/protocol/openid-connect/token")
+        .post(format!("{}/protocol/openid-connect/token", idp_issuer_url))
         .form(&params)
         .send()
         .await?;
@@ -72,8 +72,21 @@ pub async fn get_pods(match_deployment: bool) -> Result<Option<Vec<PodName>>> {
     let refresh_token = extract_refresh_token(&kubeconfig)
         .ok_or_else(|| anyhow!("Failed to find refresh token in kubeconfig"))?;
 
+    // Get the idp-issuer-url from the kubeconfig for the refresh token
+    let idp_issuer_url = kubeconfig.auth_infos[0]
+        .auth_info
+        .as_ref()
+        .unwrap()
+        .auth_provider
+        .as_ref()
+        .unwrap()
+        .config
+        .get("idp-issuer-url")
+        .unwrap();
+    println!("Kubectl config: {:?}", idp_issuer_url);
+
     // Refresh the OIDC token
-    let new_id_token = refresh_oidc_token(&refresh_token).await?;
+    let new_id_token = refresh_oidc_token(&refresh_token, &idp_issuer_url).await?;
 
     // Update the kubeconfig's auth_info
     // Find the current context name
