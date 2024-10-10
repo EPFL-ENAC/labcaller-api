@@ -59,6 +59,33 @@ fn extract_refresh_token(kubeconfig: &Kubeconfig) -> Option<String> {
 }
 
 pub async fn get_pods(match_deployment: bool) -> Result<Option<Vec<PodName>>> {
+    // Get app config and kube client
+    let app_config = Config::from_env();
+    let client = refresh_token_and_get_client().await?;
+
+    // Get pods from RCP
+    let pods: Api<Pod> = Api::namespaced(client, &app_config.kube_namespace);
+    let lp = ListParams::default();
+    let pods: Vec<PodName> = pods
+        .list(&lp)
+        .await?
+        .into_iter()
+        .map(|pod| PodName::from(pod.metadata.name.clone().unwrap()))
+        .collect();
+
+    // If match_deployment is true, filter out pods that don't match the deployment
+    if match_deployment {
+        Ok(Some(
+            pods.into_iter()
+                .filter(|pod| pod.prefix == app_config.pod_prefix)
+                .collect(),
+        ))
+    } else {
+        Ok(Some(pods))
+    }
+}
+
+async fn refresh_token_and_get_client() -> Result<Client> {
     let app_config = Config::from_env();
 
     // Read and parse the kubeconfig file
@@ -132,25 +159,5 @@ pub async fn get_pods(match_deployment: bool) -> Result<Option<Vec<PodName>>> {
     let config = KubeConfig::from_custom_kubeconfig(kubeconfig, &Default::default()).await?;
 
     let client = Client::try_from(config)?;
-
-    // Get pods from RCP
-    let pods: Api<Pod> = Api::namespaced(client, &app_config.kube_namespace);
-    let lp = ListParams::default();
-    let pods: Vec<PodName> = pods
-        .list(&lp)
-        .await?
-        .into_iter()
-        .map(|pod| PodName::from(pod.metadata.name.clone().unwrap()))
-        .collect();
-
-    // If match_deployment is true, filter out pods that don't match the deployment
-    if match_deployment {
-        Ok(Some(
-            pods.into_iter()
-                .filter(|pod| pod.prefix == app_config.pod_prefix)
-                .collect(),
-        ))
-    } else {
-        Ok(Some(pods))
-    }
+    Ok(client)
 }
