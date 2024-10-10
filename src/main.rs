@@ -48,7 +48,11 @@ async fn main() {
     let app: Router = Router::new()
         .nest(
             "/api/submissions",
-            submissions::views::router(db.clone(), keycloak_auth_instance),
+            submissions::views::router(db.clone(), keycloak_auth_instance.clone()),
+        )
+        .nest(
+            "/api/uploads",
+            uploads::views::router(db.clone(), keycloak_auth_instance),
         )
         .route("/healthz", get(common::views::healthz))
         .route("/api/config", get(common::views::get_ui_config));

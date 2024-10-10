@@ -1,3 +1,4 @@
+use chrono::NaiveDateTime;
 use sea_orm::entity::prelude::*;
 use uuid::Uuid;
 
@@ -6,7 +7,7 @@ use uuid::Uuid;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: Uuid,
-    pub created_on: DateTimeWithTimeZone,
+    pub created_on: NaiveDateTime,
     pub filename: Option<String>,
     pub size_bytes: Option<i64>,
     pub upload_id: Option<String>,

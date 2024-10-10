@@ -15,7 +15,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(FileObjects::Id).uuid().primary_key())
                     .col(
                         ColumnDef::new(FileObjects::CreatedOn)
-                            .timestamp_with_time_zone()
+                            .date_time()
                             .not_null(),
                     )
                     .col(ColumnDef::new(FileObjects::Filename).string())

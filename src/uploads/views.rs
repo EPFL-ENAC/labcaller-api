@@ -1,98 +1,111 @@
-// use crate::common::auth::Role;
-// use crate::common::filter::{apply_filters, parse_range};
-// use crate::common::models::FilterOptions;
-// use crate::common::pagination::calculate_content_range;
-// use crate::common::sort::generic_sort;
-// use axum::{
-//     extract::{Path, Query, State},
-//     http::StatusCode,
-//     response::IntoResponse,
-//     routing, Json, Router,
-// };
-// use axum_keycloak_auth::{
-//     instance::KeycloakAuthInstance, layer::KeycloakAuthLayer, PassthroughMode,
-// };
-// use sea_orm::{
-//     query::*, ActiveModelTrait, DatabaseConnection, DeleteResult, EntityTrait, IntoActiveModel,
-//     ModelTrait, SqlErr,
-// };
-// use std::sync::Arc;
-// use uuid::Uuid;
+use crate::common::auth::Role;
+use crate::common::filter::{apply_filters, parse_range};
+use crate::common::models::FilterOptions;
+use crate::common::pagination::calculate_content_range;
+use crate::common::sort::generic_sort;
+use crate::external::s3::services::upload_stream;
+use axum::{
+    debug_handler,
+    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    routing, Json, Router,
+};
+use axum_keycloak_auth::{
+    instance::KeycloakAuthInstance, layer::KeycloakAuthLayer, PassthroughMode,
+};
+use sea_orm::{
+    query::*, ActiveModelTrait, DatabaseConnection, DeleteResult, EntityTrait, IntoActiveModel,
+    ModelTrait, SqlErr,
+};
+use std::sync::Arc;
+use uuid::Uuid;
 
-// pub fn router(db: DatabaseConnection, keycloak_auth_instance: Arc<KeycloakAuthInstance>) -> Router {
-//     Router::new()
-//         .route("/", routing::get(get_all).post(create_one))
-//         .route(
-//             "/:id",
-//             routing::get(get_one).put(update_one).delete(delete_one),
-//         )
-//         .with_state(db)
-//         .layer(
-//             KeycloakAuthLayer::<Role>::builder()
-//                 .instance(keycloak_auth_instance)
-//                 .passthrough_mode(PassthroughMode::Block)
-//                 .persist_raw_claims(false)
-//                 .expected_audiences(vec![String::from("account")])
-//                 .required_roles(vec![Role::Administrator])
-//                 .build(),
-//         )
-// }
+const RESOURCE_NAME: &str = "uploads";
 
-// const RESOURCE_NAME: &str = "uploads";
+pub fn router(db: DatabaseConnection, keycloak_auth_instance: Arc<KeycloakAuthInstance>) -> Router {
+    Router::new()
+        .route("/", routing::post(upload_one).get(get_all))
+        .with_state(db)
+        .layer(DefaultBodyLimit::max(1073741824))
+    // .layer(
+    //     KeycloakAuthLayer::<Role>::builder()
+    //         .instance(keycloak_auth_instance)
+    //         .passthrough_mode(PassthroughMode::Block)
+    //         .persist_raw_claims(false)
+    //         .expected_audiences(vec![String::from("account")])
+    //         .required_roles(vec![Role::Administrator])
+    //         .build(),
+    // )
+}
 
-// #[utoipa::path(
-//     get,
-//     path = format!("/api/{}", RESOURCE_NAME),
-//     responses((status = OK, body = super::models::Submission))
-// )]
-// pub async fn get_all(
-//     Query(params): Query<FilterOptions>,
-//     State(db): State<DatabaseConnection>,
-// ) -> impl IntoResponse {
-//     let (offset, limit) = parse_range(params.range.clone());
+#[axum::debug_handler]
+pub async fn upload_one(State(db): State<DatabaseConnection>, mut multipart: Multipart) {
+    println!("Accessed route");
 
-//     let condition = apply_filters(params.filter.clone(), &[("name", super::db::Column::Name)]);
+    while let Some(mut field) = multipart.next_field().await.unwrap() {
+        let name = field.name().unwrap().to_string();
+        let data = field.bytes().await.unwrap();
 
-//     let (order_column, order_direction) = generic_sort(
-//         params.sort.clone(),
-//         &[
-//             ("id", super::db::Column::Id),
-//             ("name", super::db::Column::Name),
-//             (
-//                 "processing_has_started",
-//                 super::db::Column::ProcessingHasStarted,
-//             ),
-//             ("processing_success", super::db::Column::ProcessingSuccess),
-//             ("comment", super::db::Column::Comment),
-//             ("created_on", super::db::Column::CreatedOn),
-//             ("last_updated", super::db::Column::LastUpdated),
-//         ],
-//         super::db::Column::Id,
-//     );
+        println!(
+            "Length of `{}` is {} megabytes",
+            name,
+            data.len() / 1024 / 1024
+        );
+    }
+    ()
+}
 
-//     let objs: Vec<super::db::Model> = super::db::Entity::find()
-//         .filter(condition.clone())
-//         .order_by(order_column, order_direction)
-//         .offset(offset)
-//         .limit(limit)
-//         .all(&db)
-//         .await
-//         .unwrap();
+#[utoipa::path(
+    get,
+    path = format!("/api/{}", RESOURCE_NAME),
+    responses((status = OK, body = super::models::Submission))
+)]
+pub async fn get_all(
+    Query(params): Query<FilterOptions>,
+    State(db): State<DatabaseConnection>,
+) -> impl IntoResponse {
+    let (offset, limit) = parse_range(params.range.clone());
 
-//     // Map the results from the database models
-//     let response_objs: Vec<super::models::Submission> =
-//         objs.into_iter().map(|obj| obj.into()).collect();
+    let condition = apply_filters(
+        params.filter.clone(),
+        &[("name", super::db::Column::Filename)],
+    );
 
-//     let total_count: u64 = <super::db::Entity>::find()
-//         .filter(condition.clone())
-//         .count(&db)
-//         .await
-//         .unwrap_or(0);
+    let (order_column, order_direction) = generic_sort(
+        params.sort.clone(),
+        &[
+            ("id", super::db::Column::Id),
+            ("created_on", super::db::Column::CreatedOn),
+            ("filename", super::db::Column::Filename),
+            ("size_bytes", super::db::Column::SizeBytes),
+        ],
+        super::db::Column::Id,
+    );
 
-//     let headers = calculate_content_range(offset, limit, total_count, RESOURCE_NAME);
+    let objs: Vec<super::db::Model> = super::db::Entity::find()
+        .filter(condition.clone())
+        .order_by(order_column, order_direction)
+        .offset(offset)
+        .limit(limit)
+        .all(&db)
+        .await
+        .unwrap();
 
-//     (headers, Json(response_objs))
-// }
+    // Map the results from the database models
+    let response_objs: Vec<super::models::UploadReadOne> =
+        objs.into_iter().map(|obj| obj.into()).collect();
+
+    let total_count: u64 = <super::db::Entity>::find()
+        .filter(condition.clone())
+        .count(&db)
+        .await
+        .unwrap_or(0);
+
+    let headers = calculate_content_range(offset, limit, total_count, RESOURCE_NAME);
+
+    (headers, Json(response_objs))
+}
 
 // #[utoipa::path(
 //     post,
