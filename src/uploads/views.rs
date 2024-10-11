@@ -81,12 +81,9 @@ pub async fn upload_one(State(db): State<DatabaseConnection>, mut multipart: Mul
     // Add the prefix to the key
 
     while let Some(mut field) = multipart.next_field().await.unwrap() {
-        let name = field.name().clone().unwrap().to_string();
+        let name = field.name().unwrap().to_string();
         let filename = field.file_name().unwrap().to_string();
-        let mut data = Vec::new();
-        while let Some(chunk) = field.chunk().await.unwrap() {
-            data.extend_from_slice(&chunk);
-        }
+        let data = field.bytes().await.unwrap();
         let key = format!("{}/{}", app_conf.s3_prefix, filename);
 
         // Start the multipart upload
@@ -101,18 +98,28 @@ pub async fn upload_one(State(db): State<DatabaseConnection>, mut multipart: Mul
         let upload_id = multipart_upload_res.upload_id().unwrap().to_string();
 
         println!(
-            "Length of `{}: {filename}` is {} megabytes {}/{}. Upload ID: {}",
+            "Length of `{}: {filename}` is {} megabytes. Upload ID: {}",
             name,
             data.len() / 1024 / 1024,
-            data.len(),
-            PART_SIZE,
             upload_id,
         );
 
+        // Get amount of uploaded parts from the upload_id from S3
+        let parts = client
+            .list_parts()
+            .bucket(&app_conf.s3_bucket)
+            .key(&key)
+            .upload_id(&upload_id)
+            .send()
+            .await
+            .expect("Couldn't list parts");
+
+        println!("Parts: {:?}", parts);
         let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_UPLOADS)); // Limit concurrency
         let mut upload_futures = Vec::new();
         let mut part_number = 1;
         let mut eof = false;
+        let mut stream = tokio::io::BufReader::new(data.as_ref());
 
         // If the file is larger than 5MB, parallel upload in parts
         if data.len() > PART_SIZE {
@@ -127,17 +134,24 @@ pub async fn upload_one(State(db): State<DatabaseConnection>, mut multipart: Mul
                 let mut bytes_read = 0;
 
                 // Read data into buffer
-                let data = &field.chunk().await.unwrap();
-
-                if let Some(data) = data {
-                    if data.is_empty() {
-                        eof = true;
-                        break;
+                while bytes_read < PART_SIZE {
+                    match stream.read(&mut buffer[bytes_read..]).await {
+                        Ok(0) => {
+                            eof = true;
+                            break;
+                        }
+                        Ok(n) => {
+                            bytes_read += n;
+                        }
+                        Err(e) => {
+                            eprintln!("Error reading stream: {}", e);
+                            return;
+                        }
                     }
-                    // Use `data` here for the part upload...
-                } else {
-                    eof = true;
-                    break;
+                }
+
+                if bytes_read == 0 {
+                    break; // No more data to read
                 }
 
                 let data = buffer[..bytes_read].to_vec();
@@ -189,10 +203,6 @@ pub async fn upload_one(State(db): State<DatabaseConnection>, mut multipart: Mul
             );
         } else {
             // If the file is smaller than 5MB, upload in one part
-
-            let buffer = vec![0u8; PART_SIZE];
-            let bytes_read = 0;
-            let data = buffer[..bytes_read].to_vec();
             let part = client
                 .upload_part()
                 .key(&key)
@@ -212,17 +222,7 @@ pub async fn upload_one(State(db): State<DatabaseConnection>, mut multipart: Mul
             println!("Completed singular upload: {:?}", completed_part);
         }
 
-        // Get amount of uploaded parts from the upload_id from S3
-        let parts = client
-            .list_parts()
-            .bucket(&app_conf.s3_bucket)
-            .key(&key)
-            .upload_id(&upload_id)
-            .send()
-            .await
-            .expect("Couldn't list parts");
-
-        println!("Parts: {:?}", parts);
+        // Wait for all upload parts to complete
     }
 }
 
