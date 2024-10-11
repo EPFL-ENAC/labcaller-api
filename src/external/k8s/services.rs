@@ -58,7 +58,7 @@ fn extract_refresh_token(kubeconfig: &Kubeconfig) -> Option<String> {
     None
 }
 
-pub async fn get_pods(match_deployment: bool) -> Result<Option<Vec<PodName>>> {
+pub async fn get_pods() -> Result<Option<Vec<PodName>>> {
     // Get app config and kube client
     let app_config = Config::from_env();
     let client = refresh_token_and_get_client().await?;
@@ -70,19 +70,10 @@ pub async fn get_pods(match_deployment: bool) -> Result<Option<Vec<PodName>>> {
         .list(&lp)
         .await?
         .into_iter()
-        .map(|pod| PodName::from(pod.metadata.name.clone().unwrap()))
+        .filter_map(|pod| PodName::try_from(pod.metadata.name.clone().unwrap()).ok())
         .collect();
 
-    // If match_deployment is true, filter out pods that don't match the deployment
-    if match_deployment {
-        Ok(Some(
-            pods.into_iter()
-                .filter(|pod| pod.prefix == app_config.pod_prefix)
-                .collect(),
-        ))
-    } else {
-        Ok(Some(pods))
-    }
+    Ok(Some(pods))
 }
 
 async fn refresh_token_and_get_client() -> Result<Client> {

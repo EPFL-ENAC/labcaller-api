@@ -11,7 +11,7 @@ pub async fn check_external_services() {
         .unwrap();
 
     // Fetch pods and handle the result
-    let pods_result = crate::external::k8s::services::get_pods(true).await;
+    let pods_result = crate::external::k8s::services::get_pods().await;
 
     let service: ActiveModel = match pods_result {
         Ok(Some(pods)) => {
