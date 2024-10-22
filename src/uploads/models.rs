@@ -13,6 +13,8 @@ pub struct UploadReadOne {
     size_bytes: i64,
     upload_id: Option<String>,
     parts: Value,
+    all_parts_received: Option<bool>,
+    last_part_received: Option<NaiveDateTime>,
 }
 
 impl From<super::db::Model> for UploadReadOne {
@@ -24,6 +26,8 @@ impl From<super::db::Model> for UploadReadOne {
             size_bytes: model.size_bytes.unwrap_or(0),
             upload_id: model.upload_id,
             parts: model.parts.unwrap_or(Value::Null),
+            all_parts_received: model.all_parts_received,
+            last_part_received: model.last_part_received,
         }
     }
 }

@@ -13,6 +13,8 @@ pub struct Model {
     pub upload_id: Option<String>,
     #[sea_orm(column_type = "JsonBinary", nullable)]
     pub parts: Option<Json>,
+    pub all_parts_received: Option<bool>,
+    pub last_part_received: Option<NaiveDateTime>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

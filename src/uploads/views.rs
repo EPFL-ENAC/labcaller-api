@@ -16,6 +16,7 @@ use aws_sdk_s3::{
     Client as S3Client,
 };
 use aws_smithy_types::byte_stream::ByteStream;
+use axum::body::Body;
 use axum::{
     debug_handler,
     extract::{DefaultBodyLimit, Extension, Multipart, Path, Query, State},
@@ -43,7 +44,7 @@ const MAX_CONCURRENT_UPLOADS: usize = 10; // Limit the number of concurrent uplo
 
 pub fn router(db: DatabaseConnection, keycloak_auth_instance: Arc<KeycloakAuthInstance>) -> Router {
     Router::new()
-        .route("/", routing::post(upload_one).get(get_all))
+        .route("/", routing::get(get_all))
         .with_state(db)
         .layer(DefaultBodyLimit::max(1073741824))
     // .layer(
@@ -57,174 +58,174 @@ pub fn router(db: DatabaseConnection, keycloak_auth_instance: Arc<KeycloakAuthIn
     // )
 }
 
-#[axum::debug_handler]
-pub async fn upload_one(State(db): State<DatabaseConnection>, mut multipart: Multipart) {
-    let app_conf = crate::config::Config::from_env();
-    println!("Accessed route");
-    let region = Region::new("us-east-1");
-    let credentials = Credentials::new(
-        &app_conf.s3_access_key,
-        &app_conf.s3_secret_key,
-        None,
-        None,
-        "manual",
-    );
-    let shared_config = aws_config::defaults(BehaviorVersion::latest())
-        .region(region.clone())
-        .credentials_provider(credentials)
-        .endpoint_url(&app_conf.s3_url)
-        .load()
-        .await;
+// #[axum::debug_handler]
+// pub async fn upload_one(State(db): State<DatabaseConnection>, mut multipart: Multipart) {
+//     let app_conf = crate::config::Config::from_env();
+//     println!("Accessed route");
+//     let region = Region::new("us-east-1");
+//     let credentials = Credentials::new(
+//         &app_conf.s3_access_key,
+//         &app_conf.s3_secret_key,
+//         None,
+//         None,
+//         "manual",
+//     );
+//     let shared_config = aws_config::defaults(BehaviorVersion::latest())
+//         .region(region.clone())
+//         .credentials_provider(credentials)
+//         .endpoint_url(&app_conf.s3_url)
+//         .load()
+//         .await;
 
-    let client = Arc::new(S3Client::new(&shared_config));
+//     let client = Arc::new(S3Client::new(&shared_config));
 
-    // Add the prefix to the key
+//     // Add the prefix to the key
 
-    while let Some(mut field) = multipart.next_field().await.unwrap() {
-        let name = field.name().unwrap().to_string();
-        let filename = field.file_name().unwrap().to_string();
-        let data = field.bytes().await.unwrap();
-        let key = format!("{}/{}", app_conf.s3_prefix, filename);
+//     while let Some(mut field) = multipart.next_field().await.unwrap() {
+//         let name = field.name().unwrap().to_string();
+//         let filename = field.file_name().unwrap().to_string();
+//         let data = field.bytes().await.unwrap();
+//         let key = format!("{}/{}", app_conf.s3_prefix, filename);
 
-        // Start the multipart upload
-        let multipart_upload_res: CreateMultipartUploadOutput = client
-            .create_multipart_upload()
-            .bucket(&app_conf.s3_bucket)
-            .key(&key)
-            .send()
-            .await
-            .expect("Couldn't create multipart upload");
+//         // Start the multipart upload
+//         let multipart_upload_res: CreateMultipartUploadOutput = client
+//             .create_multipart_upload()
+//             .bucket(&app_conf.s3_bucket)
+//             .key(&key)
+//             .send()
+//             .await
+//             .expect("Couldn't create multipart upload");
 
-        let upload_id = multipart_upload_res.upload_id().unwrap().to_string();
+//         let upload_id = multipart_upload_res.upload_id().unwrap().to_string();
 
-        println!(
-            "Length of `{}: {filename}` is {} megabytes. Upload ID: {}",
-            name,
-            data.len() / 1024 / 1024,
-            upload_id,
-        );
+//         println!(
+//             "Length of `{}: {filename}` is {} megabytes. Upload ID: {}",
+//             name,
+//             data.len() / 1024 / 1024,
+//             upload_id,
+//         );
 
-        // Get amount of uploaded parts from the upload_id from S3
-        let parts = client
-            .list_parts()
-            .bucket(&app_conf.s3_bucket)
-            .key(&key)
-            .upload_id(&upload_id)
-            .send()
-            .await
-            .expect("Couldn't list parts");
+//         // Get amount of uploaded parts from the upload_id from S3
+//         let parts = client
+//             .list_parts()
+//             .bucket(&app_conf.s3_bucket)
+//             .key(&key)
+//             .upload_id(&upload_id)
+//             .send()
+//             .await
+//             .expect("Couldn't list parts");
 
-        println!("Parts: {:?}", parts);
-        let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_UPLOADS)); // Limit concurrency
-        let mut upload_futures = Vec::new();
-        let mut part_number = 1;
-        let mut eof = false;
-        let mut stream = tokio::io::BufReader::new(data.as_ref());
+//         println!("Parts: {:?}", parts);
+//         let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_UPLOADS)); // Limit concurrency
+//         let mut upload_futures = Vec::new();
+//         let mut part_number = 1;
+//         let mut eof = false;
+//         let mut stream = tokio::io::BufReader::new(data.as_ref());
 
-        // If the file is larger than 5MB, parallel upload in parts
-        if data.len() > PART_SIZE {
-            while !eof {
-                let client = Arc::clone(&client);
-                let key = key.clone();
-                let upload_id = upload_id.clone();
-                let bucket = app_conf.s3_bucket.clone();
-                let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap(); // Acquire semaphore permit
+//         // If the file is larger than 5MB, parallel upload in parts
+//         if data.len() > PART_SIZE {
+//             while !eof {
+//                 let client = Arc::clone(&client);
+//                 let key = key.clone();
+//                 let upload_id = upload_id.clone();
+//                 let bucket = app_conf.s3_bucket.clone();
+//                 let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap(); // Acquire semaphore permit
 
-                let mut buffer = vec![0u8; PART_SIZE];
-                let mut bytes_read = 0;
+//                 let mut buffer = vec![0u8; PART_SIZE];
+//                 let mut bytes_read = 0;
 
-                // Read data into buffer
-                while bytes_read < PART_SIZE {
-                    match stream.read(&mut buffer[bytes_read..]).await {
-                        Ok(0) => {
-                            eof = true;
-                            break;
-                        }
-                        Ok(n) => {
-                            bytes_read += n;
-                        }
-                        Err(e) => {
-                            eprintln!("Error reading stream: {}", e);
-                            return;
-                        }
-                    }
-                }
+//                 // Read data into buffer
+//                 while bytes_read < PART_SIZE {
+//                     match stream.read(&mut buffer[bytes_read..]).await {
+//                         Ok(0) => {
+//                             eof = true;
+//                             break;
+//                         }
+//                         Ok(n) => {
+//                             bytes_read += n;
+//                         }
+//                         Err(e) => {
+//                             eprintln!("Error reading stream: {}", e);
+//                             return;
+//                         }
+//                     }
+//                 }
 
-                if bytes_read == 0 {
-                    break; // No more data to read
-                }
+//                 if bytes_read == 0 {
+//                     break; // No more data to read
+//                 }
 
-                let data = buffer[..bytes_read].to_vec();
+//                 let data = buffer[..bytes_read].to_vec();
 
-                // Upload each part concurrently using tokio::spawn
-                let upload_future = tokio::spawn(async move {
-                    let part = client
-                        .upload_part()
-                        .key(&key)
-                        .bucket(&bucket)
-                        .upload_id(&upload_id)
-                        .body(ByteStream::from(data))
-                        .part_number(part_number)
-                        .send()
-                        .await
-                        .expect("Couldn't upload part");
+//                 // Upload each part concurrently using tokio::spawn
+//                 let upload_future = tokio::spawn(async move {
+//                     let part = client
+//                         .upload_part()
+//                         .key(&key)
+//                         .bucket(&bucket)
+//                         .upload_id(&upload_id)
+//                         .body(ByteStream::from(data))
+//                         .part_number(part_number)
+//                         .send()
+//                         .await
+//                         .expect("Couldn't upload part");
 
-                    drop(permit); // Release semaphore permit when the upload is done
+//                     drop(permit); // Release semaphore permit when the upload is done
 
-                    CompletedPart::builder()
-                        .e_tag(part.e_tag().unwrap_or_default())
-                        .part_number(part_number)
-                        .build()
-                });
+//                     CompletedPart::builder()
+//                         .e_tag(part.e_tag().unwrap_or_default())
+//                         .part_number(part_number)
+//                         .build()
+//                 });
 
-                upload_futures.push(upload_future);
+//                 upload_futures.push(upload_future);
 
-                // Move to the next part
-                part_number += 1;
-            }
-            // futures::future::join_all(upload_futures).await;
+//                 // Move to the next part
+//                 part_number += 1;
+//             }
+//             // futures::future::join_all(upload_futures).await;
 
-            let completed_parts = futures::future::join_all(upload_futures)
-                .await
-                .into_iter()
-                .map(|result| result.unwrap())
-                .collect::<Vec<CompletedPart>>();
+//             let completed_parts = futures::future::join_all(upload_futures)
+//                 .await
+//                 .into_iter()
+//                 .map(|result| result.unwrap())
+//                 .collect::<Vec<CompletedPart>>();
 
-            let completed_multipart_upload: CompletedMultipartUpload =
-                CompletedMultipartUpload::builder()
-                    .set_parts(Some(completed_parts.clone()))
-                    .build();
+//             let completed_multipart_upload: CompletedMultipartUpload =
+//                 CompletedMultipartUpload::builder()
+//                     .set_parts(Some(completed_parts.clone()))
+//                     .build();
 
-            println!("Completing multipart upload in {} parts", part_number);
-            println!("Completed parts: {:?}", completed_parts);
-            println!(
-                "Completed multipart upload: {:?}",
-                completed_multipart_upload
-            );
-        } else {
-            // If the file is smaller than 5MB, upload in one part
-            let part = client
-                .upload_part()
-                .key(&key)
-                .bucket(&app_conf.s3_bucket)
-                .upload_id(&upload_id)
-                .body(ByteStream::from(data))
-                .part_number(1)
-                .send()
-                .await
-                .expect("Couldn't upload part");
+//             println!("Completing multipart upload in {} parts", part_number);
+//             println!("Completed parts: {:?}", completed_parts);
+//             println!(
+//                 "Completed multipart upload: {:?}",
+//                 completed_multipart_upload
+//             );
+//         } else {
+//             // If the file is smaller than 5MB, upload in one part
+//             let part = client
+//                 .upload_part()
+//                 .key(&key)
+//                 .bucket(&app_conf.s3_bucket)
+//                 .upload_id(&upload_id)
+//                 .body(ByteStream::from(data))
+//                 .part_number(1)
+//                 .send()
+//                 .await
+//                 .expect("Couldn't upload part");
 
-            let completed_part = CompletedPart::builder()
-                .e_tag(part.e_tag().unwrap_or_default())
-                .part_number(1)
-                .build();
+//             let completed_part = CompletedPart::builder()
+//                 .e_tag(part.e_tag().unwrap_or_default())
+//                 .part_number(1)
+//                 .build();
 
-            println!("Completed singular upload: {:?}", completed_part);
-        }
+//             println!("Completed singular upload: {:?}", completed_part);
+//         }
 
-        // Wait for all upload parts to complete
-    }
-}
+//         // Wait for all upload parts to complete
+//     }
+// }
 
 #[utoipa::path(
     get,

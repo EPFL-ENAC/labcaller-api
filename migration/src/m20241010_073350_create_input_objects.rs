@@ -22,6 +22,8 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(FileObjects::SizeBytes).big_integer())
                     .col(ColumnDef::new(FileObjects::UploadId).string())
                     .col(ColumnDef::new(FileObjects::Parts).json_binary())
+                    .col(ColumnDef::new(FileObjects::AllPartsReceived).boolean())
+                    .col(ColumnDef::new(FileObjects::LastPartReceived).date_time())
                     .to_owned(),
             )
             .await?;
@@ -163,6 +165,8 @@ enum FileObjects {
     UploadId,
     Parts,
     CreatedOn,
+    AllPartsReceived,
+    LastPartReceived,
 }
 
 #[derive(DeriveIden)]
