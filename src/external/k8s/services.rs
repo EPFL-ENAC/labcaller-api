@@ -24,12 +24,15 @@ async fn refresh_oidc_token(refresh_token: &str, idp_issuer_url: &str) -> Result
         ("refresh_token", refresh_token),
         ("client_id", "runai-cli"),
     ];
+    println!("Refreshing OIDC token, params: {:?}", params);
 
     let res = client
         .post(format!("{}/protocol/openid-connect/token", idp_issuer_url))
         .form(&params)
         .send()
         .await?;
+
+    println!("Response: {:?}", res);
 
     if res.status().is_success() {
         println!("Refreshed OIDC token");
