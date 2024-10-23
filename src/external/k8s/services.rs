@@ -24,21 +24,15 @@ async fn refresh_oidc_token(refresh_token: &str, idp_issuer_url: &str) -> Result
         ("refresh_token", refresh_token),
         ("client_id", "runai-cli"),
     ];
-    println!("Refreshing OIDC token, params: {:?}", params);
     let url = format!("{}/protocol/openid-connect/token", idp_issuer_url);
-    println!("Refreshing OIDC token, url: {:?}", url);
     let res = match client.post(&url).form(&params).send().await {
         Ok(res) => res,
         Err(e) => {
-            println!("Failed to refresh token: {:?}", e);
             return Err(anyhow!("Failed to refresh token: {}", e));
         }
     };
 
-    println!("Response: {:?}", res);
-
     if res.status().is_success() {
-        println!("Refreshed OIDC token");
         let token_response: TokenResponse = res.json().await?;
         Ok(token_response.id_token)
     } else {
@@ -68,13 +62,9 @@ pub async fn get_pods() -> Result<Option<Vec<PodName>>> {
     // Get app config and kube client
     let app_config = Config::from_env();
     let client = match refresh_token_and_get_client().await {
-        Ok(client) => {
-            println!("Successfully got Kubernetes client");
-            client
-        }
+        Ok(client) => client,
         Err(e) => {
-            println!("Failed to get Kubernetes client: {}", e);
-            return Ok(None);
+            return Err(e);
         }
     };
 
@@ -116,8 +106,6 @@ async fn refresh_token_and_get_client() -> Result<Client> {
         .config
         .get("idp-issuer-url")
         .unwrap();
-    println!("Kubectl config: {:?}", idp_issuer_url);
-    println!("Kubectl config kubeconfig: {:?}", kubeconfig);
 
     // Refresh the OIDC token
     let new_id_token = refresh_oidc_token(&refresh_token, &idp_issuer_url).await?;

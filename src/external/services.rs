@@ -15,7 +15,6 @@ pub async fn check_external_services() {
 
     let service: ActiveModel = match pods_result {
         Ok(Some(pods)) => {
-            println!("Found {} pods", pods.len());
             let pods_json = serde_json::to_value(pods).unwrap();
             ServiceCreate {
                 service_name: ServiceName::RCP,
@@ -24,17 +23,13 @@ pub async fn check_external_services() {
             }
             .into()
         }
-        Ok(_) => {
-            println!("No pods found.");
-            ServiceCreate {
-                service_name: ServiceName::RCP,
-                is_online: true,
-                details: None,
-            }
-            .into()
+        Ok(_) => ServiceCreate {
+            service_name: ServiceName::RCP,
+            is_online: true,
+            details: None,
         }
+        .into(),
         Err(err) => {
-            println!("Error with RCP: {}", err);
             let error_json = serde_json::to_value(err.to_string()).unwrap();
             ServiceCreate {
                 service_name: ServiceName::RCP,

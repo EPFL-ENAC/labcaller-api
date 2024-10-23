@@ -34,3 +34,8 @@ impl UIConfiguration {
         }
     }
 }
+
+#[derive(ToSchema, Deserialize, Serialize)]
+pub struct HealthCheck {
+    pub status: String,
+}
