@@ -24,7 +24,7 @@ pub async fn check_external_services() {
             }
             .into()
         }
-        Ok(None) => {
+        Ok(_) => {
             println!("No pods found.");
             ServiceCreate {
                 service_name: ServiceName::RCP,
