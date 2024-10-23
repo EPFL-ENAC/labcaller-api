@@ -47,6 +47,8 @@ async fn main() {
 
     // Set up your Axum app
     let app: Router = Router::new()
+        .route("/healthz", get(common::views::healthz))
+        .route("/api/config", get(common::views::get_ui_config))
         .with_state(db.clone())
         .nest(
             "/api/submissions",
@@ -59,9 +61,7 @@ async fn main() {
         .nest(
             "/tus",
             external::tus::views::router(db.clone(), keycloak_auth_instance),
-        )
-        .route("/healthz", get(common::views::healthz))
-        .route("/api/config", get(common::views::get_ui_config));
+        );
 
     let addr: std::net::SocketAddr = "0.0.0.0:3000".parse().unwrap();
     println!("Listening on {}", addr);
