@@ -55,3 +55,4 @@ secrecy = "0.8.0"
 anyhow = "1.0.89"
 thiserror = "1.0.64"
 tokio-util = "0.7.12"
+rustls = { version = "0.23.15", features = ["ring"] }
