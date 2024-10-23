@@ -1,8 +1,5 @@
 use crate::common::models::UIConfiguration;
-use axum::{debug_handler, http::StatusCode, response::IntoResponse, Json};
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
-use sea_orm::query::*;
-use serde_json;
+use axum::Json;
 
 #[utoipa::path(
     get,

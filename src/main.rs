@@ -4,11 +4,7 @@ mod external;
 mod submissions;
 mod uploads;
 
-// use crate::external::s3::services::upload_stream;
-use axum::{
-    routing::{get, post},
-    Router,
-};
+use axum::{routing::get, Router};
 use axum_keycloak_auth::{instance::KeycloakAuthInstance, instance::KeycloakConfig, Url};
 use config::Config;
 use migration::{Migrator, MigratorTrait};

@@ -1,8 +1,3 @@
-use axum::{
-    body::Body,
-    response::{IntoResponse, Response},
-};
-use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize, Serialize)]
 pub struct EventPayload {
@@ -23,6 +18,8 @@ pub enum EventType {
     PreFinish,
     #[serde(rename = "post-finish")]
     PostFinish,
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
