@@ -18,12 +18,27 @@ impl MigrationTrait for Migration {
                             .date_time()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(FileObjects::Filename).string())
-                    .col(ColumnDef::new(FileObjects::SizeBytes).big_integer())
-                    .col(ColumnDef::new(FileObjects::UploadId).string())
-                    .col(ColumnDef::new(FileObjects::Parts).json_binary())
-                    .col(ColumnDef::new(FileObjects::AllPartsReceived).boolean())
-                    .col(ColumnDef::new(FileObjects::LastPartReceived).date_time())
+                    .col(ColumnDef::new(FileObjects::Filename).string().not_null())
+                    .col(
+                        ColumnDef::new(FileObjects::SizeBytes)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(FileObjects::AllPartsReceived)
+                            .boolean()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(FileObjects::LastPartReceived)
+                            .date_time()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(FileObjects::ProcessingMessage)
+                            .string()
+                            .null(),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -45,16 +60,6 @@ impl MigrationTrait for Migration {
                     .name("idx_file_obj_filename")
                     .table(FileObjects::Table)
                     .col(FileObjects::Filename)
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_file_obj_upload_id")
-                    .table(FileObjects::Table)
-                    .col(FileObjects::UploadId)
                     .to_owned(),
             )
             .await?;
@@ -162,11 +167,10 @@ enum FileObjects {
     Id,
     Filename,
     SizeBytes,
-    UploadId,
-    Parts,
     CreatedOn,
     AllPartsReceived,
     LastPartReceived,
+    ProcessingMessage,
 }
 
 #[derive(DeriveIden)]

@@ -1,5 +1,9 @@
+use axum::{
+    body::Body,
+    response::{IntoResponse, Response},
+};
+use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
-
 #[derive(Debug, Deserialize, Serialize)]
 pub struct EventPayload {
     #[serde(rename = "Event")]
@@ -100,13 +104,12 @@ pub struct Upload {
     #[serde(rename = "PartialUploads")]
     pub partial_uploads: Option<String>,
     #[serde(rename = "Size")]
-    pub size: u64,
+    pub size: i64,
     #[serde(rename = "SizeIsDeferred")]
     pub size_is_deferred: bool,
     #[serde(rename = "Storage")]
     pub storage: Option<Storage>,
 }
-
 #[derive(Debug, Deserialize, Serialize)]
 pub struct MetaData {
     #[serde(rename = "filename")]
@@ -114,11 +117,11 @@ pub struct MetaData {
     #[serde(rename = "filetype")]
     pub filetype: String,
     #[serde(rename = "name")]
-    pub name: String,
+    pub name: Option<String>,
     #[serde(rename = "relativePath")]
     pub relative_path: Option<String>,
     #[serde(rename = "type")]
-    pub file_type: String,
+    pub file_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -129,4 +132,45 @@ pub struct Storage {
     pub key: String,
     #[serde(rename = "Type")]
     pub storage_type: String,
+}
+
+impl Default for MetaData {
+    fn default() -> Self {
+        Self {
+            filename: String::new(),
+            filetype: String::new(),
+            name: None,
+            relative_path: None,
+            file_type: None,
+        }
+    }
+}
+
+impl Default for Upload {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            is_final: false,
+            is_partial: false,
+            metadata: MetaData::default(),
+            offset: 0,
+            partial_uploads: None,
+            size: 0,
+            size_is_deferred: false,
+            storage: None,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ChangeFileInfo {
+    #[serde(rename = "ID")]
+    pub id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PreCreateResponse {
+    #[serde(rename = "ChangeFileInfo")]
+    pub change_file_info: Option<ChangeFileInfo>,
+    pub status: String,
 }

@@ -1,7 +1,6 @@
 use chrono::NaiveDateTime;
 use sea_orm::FromQueryResult;
 use serde::Serialize;
-use serde_json::Value;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -11,10 +10,9 @@ pub struct UploadReadOne {
     created_on: NaiveDateTime,
     filename: String,
     size_bytes: i64,
-    upload_id: Option<String>,
-    parts: Value,
-    all_parts_received: Option<bool>,
+    all_parts_received: bool,
     last_part_received: Option<NaiveDateTime>,
+    processing_message: Option<String>,
 }
 
 impl From<super::db::Model> for UploadReadOne {
@@ -22,12 +20,11 @@ impl From<super::db::Model> for UploadReadOne {
         Self {
             id: model.id,
             created_on: model.created_on,
-            filename: model.filename.unwrap_or_else(|| "".to_string()),
-            size_bytes: model.size_bytes.unwrap_or(0),
-            upload_id: model.upload_id,
-            parts: model.parts.unwrap_or(Value::Null),
+            filename: model.filename,
+            size_bytes: model.size_bytes,
             all_parts_received: model.all_parts_received,
             last_part_received: model.last_part_received,
+            processing_message: model.processing_message,
         }
     }
 }

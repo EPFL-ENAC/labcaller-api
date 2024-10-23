@@ -56,11 +56,14 @@ async fn main() {
         )
         .nest(
             "/api/uploads",
-            uploads::views::router(db.clone(), keycloak_auth_instance),
+            uploads::views::router(db.clone(), keycloak_auth_instance.clone()),
+        )
+        .nest(
+            "/tus",
+            external::tus::views::router(db.clone(), keycloak_auth_instance),
         )
         .route("/healthz", get(common::views::healthz))
-        .route("/api/config", get(common::views::get_ui_config))
-        .route("/tus_hooks", post(common::views::handle_tus_hooks));
+        .route("/api/config", get(common::views::get_ui_config));
 
     let addr: std::net::SocketAddr = "0.0.0.0:3000".parse().unwrap();
     println!("Listening on {}", addr);

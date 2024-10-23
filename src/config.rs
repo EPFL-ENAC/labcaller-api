@@ -24,7 +24,7 @@ pub struct Config {
     pub kube_namespace: String,
 
     pub s3_prefix: String,  // Prefix within the bucket, ie. labcaller-dev
-    pub pod_prefix: String, // What is prefixed to the pod name, ie. labcaller-dev
+    pub pod_prefix: String, // What is prefixed to the pod name, ie. labcaller-dev}
 }
 
 impl Config {

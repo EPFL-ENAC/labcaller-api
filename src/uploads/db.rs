@@ -8,13 +8,11 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: Uuid,
     pub created_on: NaiveDateTime,
-    pub filename: Option<String>,
-    pub size_bytes: Option<i64>,
-    pub upload_id: Option<String>,
-    #[sea_orm(column_type = "JsonBinary", nullable)]
-    pub parts: Option<Json>,
-    pub all_parts_received: Option<bool>,
+    pub filename: String,
+    pub size_bytes: i64,
+    pub all_parts_received: bool,
     pub last_part_received: Option<NaiveDateTime>,
+    pub processing_message: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
