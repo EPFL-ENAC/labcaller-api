@@ -7,12 +7,7 @@ edition = "2021"
 members = [".", "migration"]
 
 [dependencies]
-reqwest = { version = "0.12.8", features = [
-    "json",
-    "blocking",
-    "rustls-tls",
-    "native-tls-vendored",
-] }
+reqwest = { version = "0.12.8", features = ["json", "blocking", "rustls-tls"] }
 migration = { path = "migration" }
 axum = { version = "0.7.5", features = ["macros", "multipart", "json"] }
 dotenvy = "0.15.7"
@@ -60,4 +55,3 @@ secrecy = "0.8.0"
 anyhow = "1.0.89"
 thiserror = "1.0.64"
 tokio-util = "0.7.12"
-rustls = { version = "0.23.15", features = ["ring"] }

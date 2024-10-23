@@ -22,7 +22,7 @@ RUN cargo build --release --bin labcaller-api
 # We do not need the Rust toolchain to run the binary!
 FROM debian:bookworm-slim AS runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends openssl && apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY --from=builder /app/target/release/labcaller-api /usr/local/bin

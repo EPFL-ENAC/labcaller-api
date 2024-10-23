@@ -8,16 +8,14 @@ use axum::{routing::get, Router};
 use axum_keycloak_auth::{instance::KeycloakAuthInstance, instance::KeycloakConfig, Url};
 use config::Config;
 use migration::{Migrator, MigratorTrait};
-use rustls;
+
 use sea_orm::{Database, DatabaseConnection};
 use std::sync::Arc;
 use std::time::Duration;
+
 #[tokio::main]
 async fn main() {
     let config = Config::from_env();
-    rustls::crypto::ring::default_provider()
-        .install_default()
-        .expect("Failed to install rustls crypto provider");
 
     let db: DatabaseConnection = Database::connect(&*config.db_url.as_ref().unwrap())
         .await

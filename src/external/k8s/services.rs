@@ -29,7 +29,10 @@ async fn refresh_oidc_token(refresh_token: &str, idp_issuer_url: &str) -> Result
     println!("Refreshing OIDC token, url: {:?}", url);
     let res = match client.post(&url).form(&params).send().await {
         Ok(res) => res,
-        Err(e) => return Err(anyhow!("Failed to refresh token: {}", e)),
+        Err(e) => {
+            println!("Failed to refresh token: {:?}", e);
+            return Err(anyhow!("Failed to refresh token: {}", e));
+        }
     };
 
     println!("Response: {:?}", res);
