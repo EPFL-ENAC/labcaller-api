@@ -1,6 +1,6 @@
 use super::hooks::{
-    handle_post_create, handle_post_finish, handle_post_receive, handle_pre_create,
-    handle_pre_finish,
+    handle_post_create, handle_post_finish, handle_post_receive, handle_post_terminate,
+    handle_pre_create, handle_pre_finish,
 };
 use crate::external::tus::models::{EventPayload, EventType};
 // use crate::objects::models::InputObject;
@@ -79,6 +79,16 @@ pub async fn handle_tus_hooks(
         },
 
         EventType::PostFinish => match handle_post_finish(db, payload).await {
+            Ok(response) => (StatusCode::CREATED, Json(response)),
+            Err(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(PreCreateResponse {
+                    change_file_info: None,
+                    status: "error".to_string(),
+                }),
+            ),
+        },
+        EventType::PostTerminate => match handle_post_terminate(db, payload).await {
             Ok(response) => (StatusCode::CREATED, Json(response)),
             Err(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,

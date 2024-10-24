@@ -135,18 +135,6 @@ pub async fn delete_one(
         .await
         .unwrap();
 
-    // Delete from S3
-    let config = Config::from_env();
-    let s3_response = s3
-        .delete_object()
-        .bucket(config.s3_bucket)
-        .key(id.to_string())
-        .send()
-        .await
-        .unwrap();
-
-    println!("S3 response: {:?}", s3_response);
-
     match super::db::Entity::find_by_id(id).one(&db).await {
         Ok(Some(obj)) => {
             let obj: super::db::ActiveModel = obj.into();
@@ -156,6 +144,18 @@ pub async fn delete_one(
                     if res.rows_affected == 0 {
                         return StatusCode::NOT_FOUND;
                     }
+
+                    // Delete from S3
+                    let config = Config::from_env();
+                    let s3_response = s3
+                        .delete_object()
+                        .bucket(config.s3_bucket)
+                        .key(format!("{}/{}", config.s3_prefix, id))
+                        .send()
+                        .await
+                        .unwrap();
+
+                    println!("S3 response: {:?}", s3_response);
                     return StatusCode::NO_CONTENT;
                 }
                 Err(_) => {

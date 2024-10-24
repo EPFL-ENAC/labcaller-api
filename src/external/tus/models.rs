@@ -18,6 +18,8 @@ pub enum EventType {
     PreFinish,
     #[serde(rename = "post-finish")]
     PostFinish,
+    #[serde(rename = "post-terminate")]
+    PostTerminate,
     #[serde(other)]
     Unknown,
 }

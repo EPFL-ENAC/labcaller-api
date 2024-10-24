@@ -1,11 +1,11 @@
 use super::models::{ChangeFileInfo, PreCreateResponse};
-use crate::config::Config;
 use crate::external::tus::models::EventPayload;
 use crate::uploads::associations::db as AssociationDB;
 use crate::uploads::db as InputObjectDB;
+use crate::{config::Config, external::db};
 use anyhow::Result;
 use chrono::Utc;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, ModelTrait, QueryFilter, Set};
 use uuid::Uuid;
 
 pub(super) async fn handle_pre_create(
@@ -58,9 +58,6 @@ pub(super) async fn handle_pre_create(
         submission_id: Set(submission_id),
         ..Default::default()
     };
-    println!("Creating s3 key");
-    let s3_key = format!("{}/{}", config.s3_prefix, object.last_insert_id);
-    println!("S3 key: {}", s3_key);
 
     match AssociationDB::Entity::insert(association_object)
         .exec(&db)
@@ -72,7 +69,9 @@ pub(super) async fn handle_pre_create(
 
     // Respond with a custom ID for tusd to upload to S3
     Ok(PreCreateResponse {
-        change_file_info: Some(ChangeFileInfo { id: s3_key }),
+        change_file_info: Some(ChangeFileInfo {
+            id: object.last_insert_id.to_string(),
+        }),
         status: "success".to_string(),
     })
 }
@@ -83,15 +82,18 @@ pub(super) async fn handle_post_create(
 ) -> Result<PreCreateResponse> {
     println!("Handling post-create");
     let upload_id = &payload.event.upload.id;
-    let object_id: Uuid = upload_id
-        .split('/')
-        .nth(1)
-        .unwrap()
+    // Split the upload_id on the + separator to get the object ID.
+    let object_id: Uuid = match upload_id
         .split('+')
         .next()
-        .unwrap()
-        .try_into()
-        .unwrap();
+        .and_then(|id_str| Uuid::parse_str(id_str).ok())
+    {
+        Some(id) => id,
+        None => {
+            println!("Invalid object ID in upload_id");
+            return Err(anyhow::anyhow!("Invalid object ID in upload_id"));
+        }
+    };
 
     let obj = match InputObjectDB::Entity::find()
         .filter(InputObjectDB::Column::Id.eq(object_id))
@@ -123,17 +125,18 @@ pub(super) async fn handle_post_receive(
 ) -> Result<PreCreateResponse> {
     println!("Handling post-receive");
     let upload_id = &payload.event.upload.id;
-    // Split the s3_prefix and then the UUID out of the upload_id to get the object ID.
-    // Then again with the + separator between UUID and TUSd upload ID
-    let object_id: Uuid = upload_id
-        .split('/')
-        .nth(1)
-        .unwrap()
+    // Split the upload_id on the + separator to get the object ID.
+    let object_id: Uuid = match upload_id
         .split('+')
         .next()
-        .unwrap()
-        .try_into()
-        .unwrap();
+        .and_then(|id_str| Uuid::parse_str(id_str).ok())
+    {
+        Some(id) => id,
+        None => {
+            println!("Invalid object ID in upload_id");
+            return Err(anyhow::anyhow!("Invalid object ID in upload_id"));
+        }
+    };
 
     let size_in_bytes = payload.event.upload.size;
     let offset = payload.event.upload.offset;
@@ -171,15 +174,18 @@ pub(super) async fn handle_pre_finish(
 ) -> Result<PreCreateResponse> {
     println!("Handling pre-finish");
     let upload_id = &payload.event.upload.id;
-    let object_id: Uuid = upload_id
-        .split('/')
-        .nth(1)
-        .unwrap()
+    // Split the upload_id on the + separator to get the object ID.
+    let object_id: Uuid = match upload_id
         .split('+')
         .next()
-        .unwrap()
-        .try_into()
-        .unwrap();
+        .and_then(|id_str| Uuid::parse_str(id_str).ok())
+    {
+        Some(id) => id,
+        None => {
+            println!("Invalid object ID in upload_id");
+            return Err(anyhow::anyhow!("Invalid object ID in upload_id"));
+        }
+    };
 
     let obj = match InputObjectDB::Entity::find()
         .filter(InputObjectDB::Column::Id.eq(object_id))
@@ -212,17 +218,18 @@ pub(super) async fn handle_post_finish(
     println!("Handling post-finish");
     let upload_id = &payload.event.upload.id;
 
-    // Unwrap the UUID from the upload_id. Something like this:
-    // labcaller/<uuid>+<tusd_upload_id> -> <uuid>
-    let object_id: Uuid = upload_id
-        .split('/')
-        .nth(1)
-        .unwrap()
+    // Split the upload_id on the + separator to get the object ID.
+    let object_id: Uuid = match upload_id
         .split('+')
         .next()
-        .unwrap()
-        .try_into()
-        .unwrap();
+        .and_then(|id_str| Uuid::parse_str(id_str).ok())
+    {
+        Some(id) => id,
+        None => {
+            println!("Invalid object ID in upload_id");
+            return Err(anyhow::anyhow!("Invalid object ID in upload_id"));
+        }
+    };
 
     let obj = match InputObjectDB::Entity::find()
         .filter(InputObjectDB::Column::Id.eq(object_id))
@@ -245,5 +252,52 @@ pub(super) async fn handle_post_finish(
             status: "Upload completed".to_string(),
         }),
         _ => Err(anyhow::anyhow!("Failed to update after upload completed")),
+    }
+}
+
+pub(super) async fn handle_post_terminate(
+    db: DatabaseConnection,
+    payload: EventPayload,
+) -> Result<PreCreateResponse> {
+    // This hook is sent when the file should be cleaned up (del from db)
+    println!("Handling post-terminate");
+    let upload_id = &payload.event.upload.id;
+
+    // Split the upload_id on the + separator to get the object ID.
+    let object_id: Uuid = match upload_id
+        .split('+')
+        .next()
+        .and_then(|id_str| Uuid::parse_str(id_str).ok())
+    {
+        Some(id) => id,
+        None => {
+            println!("Invalid object ID in upload_id");
+            return Err(anyhow::anyhow!("Invalid object ID in upload_id"));
+        }
+    };
+
+    let obj = match InputObjectDB::Entity::find()
+        .filter(InputObjectDB::Column::Id.eq(object_id))
+        .one(&db)
+        .await
+    {
+        Ok(obj) => obj,
+        _ => return Err(anyhow::anyhow!("Failed to find object")),
+    };
+
+    // Delete all associations, then delete the object
+    AssociationDB::Entity::delete_many()
+        .filter(AssociationDB::Column::InputObjectId.eq(object_id))
+        .exec(&db)
+        .await
+        .unwrap();
+
+    let obj = obj.unwrap();
+    match obj.delete(&db).await {
+        Ok(_) => Ok(PreCreateResponse {
+            change_file_info: None,
+            status: "Upload terminated".to_string(),
+        }),
+        _ => Err(anyhow::anyhow!("Failed to delete object")),
     }
 }
