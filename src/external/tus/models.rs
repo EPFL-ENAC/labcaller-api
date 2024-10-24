@@ -84,6 +84,8 @@ pub struct Header {
     pub x_forwarded_server: Option<Vec<String>>,
     #[serde(rename = "X-Real-Ip")]
     pub x_real_ip: Option<Vec<String>>,
+    #[serde(rename = "Submissionid")]
+    pub submission_id: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

@@ -1,6 +1,6 @@
 use super::models::HealthCheck;
+use crate::common::models::UIConfiguration;
 use crate::external::k8s::services::get_pods;
-use crate::{common::models::UIConfiguration, external::db};
 use axum::{extract::State, http::StatusCode, Json};
 use sea_orm::DatabaseConnection;
 

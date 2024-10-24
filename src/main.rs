@@ -4,11 +4,11 @@ mod external;
 mod submissions;
 mod uploads;
 
+use crate::external::s3::services::get_client;
 use axum::{routing::get, Router};
 use axum_keycloak_auth::{instance::KeycloakAuthInstance, instance::KeycloakConfig, Url};
 use config::Config;
 use migration::{Migrator, MigratorTrait};
-
 use sea_orm::{Database, DatabaseConnection};
 use std::sync::Arc;
 use std::time::Duration;
@@ -45,6 +45,8 @@ async fn main() {
             .build(),
     ));
 
+    let s3_client = get_client(&config).await;
+
     // Set up your Axum app
     let app: Router = Router::new()
         .route("/healthz", get(common::views::healthz))
@@ -56,7 +58,7 @@ async fn main() {
         )
         .nest(
             "/api/uploads",
-            uploads::views::router(db.clone(), keycloak_auth_instance.clone()),
+            uploads::views::router(db.clone(), keycloak_auth_instance.clone(), s3_client),
         )
         .nest(
             "/tus",

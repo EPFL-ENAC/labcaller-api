@@ -5,7 +5,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 #[derive(ToSchema, Serialize, FromQueryResult)]
-pub struct UploadReadOne {
+pub struct UploadRead {
     id: Uuid,
     created_on: NaiveDateTime,
     filename: String,
@@ -15,7 +15,7 @@ pub struct UploadReadOne {
     processing_message: Option<String>,
 }
 
-impl From<super::db::Model> for UploadReadOne {
+impl From<super::db::Model> for UploadRead {
     fn from(model: super::db::Model) -> Self {
         Self {
             id: model.id,

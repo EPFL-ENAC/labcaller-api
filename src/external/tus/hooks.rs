@@ -1,7 +1,8 @@
 use super::models::{ChangeFileInfo, PreCreateResponse};
 use crate::config::Config;
 use crate::external::tus::models::EventPayload;
-use crate::uploads::db;
+use crate::uploads::associations::db as AssociationDB;
+use crate::uploads::db as InputObjectDB;
 use anyhow::Result;
 use chrono::Utc;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
@@ -11,10 +12,19 @@ pub(super) async fn handle_pre_create(
     db: DatabaseConnection,
     payload: EventPayload,
 ) -> Result<PreCreateResponse> {
+    println!("Handling pre-create");
     let config: Config = Config::from_env();
     let filename = payload.event.upload.metadata.filename;
     let filetype = payload.event.upload.metadata.filetype;
     let size_in_bytes = payload.event.upload.size;
+    let submission_id: Uuid = match payload.event.http_request.header.submission_id {
+        Some(submission_id) => match submission_id.get(0).unwrap().parse() {
+            Ok(submission_id) => submission_id,
+            _ => Err(anyhow::anyhow!("Failed to parse submission ID"))?,
+        },
+        _ => Err(anyhow::anyhow!("Submission ID not found"))?,
+    };
+    println!("Submission ID: {}", submission_id);
     println!("Filename: {}, Filetype: {}", filename, filetype);
 
     let allowed_types: Vec<&str> = vec!["application/octet-stream"];
@@ -27,7 +37,7 @@ pub(super) async fn handle_pre_create(
         return Err(anyhow::anyhow!("File extension not allowed"));
     }
 
-    let object = db::ActiveModel {
+    let object = InputObjectDB::ActiveModel {
         id: Set(Uuid::new_v4()),
         created_on: Set(Utc::now().naive_utc()),
         filename: Set(filename.clone()),
@@ -38,9 +48,27 @@ pub(super) async fn handle_pre_create(
         ..Default::default() // Assuming other fields use default
     };
 
-    let object = db::Entity::insert(object).exec(&db).await.unwrap();
+    let object = match InputObjectDB::Entity::insert(object).exec(&db).await {
+        Ok(obj) => obj,
+        _ => return Err(anyhow::anyhow!("Failed to create object")),
+    };
 
-    let s3_key = format!("{}{}", config.s3_prefix, object.last_insert_id);
+    let association_object = AssociationDB::ActiveModel {
+        input_object_id: Set(object.last_insert_id),
+        submission_id: Set(submission_id),
+        ..Default::default()
+    };
+    println!("Creating s3 key");
+    let s3_key = format!("{}/{}", config.s3_prefix, object.last_insert_id);
+    println!("S3 key: {}", s3_key);
+
+    match AssociationDB::Entity::insert(association_object)
+        .exec(&db)
+        .await
+    {
+        Ok(_) => (),
+        _ => return Err(anyhow::anyhow!("Failed to create association")),
+    }
 
     // Respond with a custom ID for tusd to upload to S3
     Ok(PreCreateResponse {
@@ -53,11 +81,10 @@ pub(super) async fn handle_post_create(
     db: DatabaseConnection,
     payload: EventPayload,
 ) -> Result<PreCreateResponse> {
-    println!("Post create event received");
-    let config: Config = Config::from_env();
+    println!("Handling post-create");
     let upload_id = &payload.event.upload.id;
     let object_id: Uuid = upload_id
-        .split(&config.s3_prefix)
+        .split('/')
         .nth(1)
         .unwrap()
         .split('+')
@@ -66,8 +93,8 @@ pub(super) async fn handle_post_create(
         .try_into()
         .unwrap();
 
-    let obj = match db::Entity::find()
-        .filter(db::Column::Id.eq(object_id))
+    let obj = match InputObjectDB::Entity::find()
+        .filter(InputObjectDB::Column::Id.eq(object_id))
         .one(&db)
         .await
     {
@@ -75,13 +102,13 @@ pub(super) async fn handle_post_create(
         _ => return Err(anyhow::anyhow!("Failed to find object")),
     };
 
-    let mut obj: db::ActiveModel = obj.unwrap().into();
+    let mut obj: InputObjectDB::ActiveModel = obj.unwrap().into();
 
     obj.processing_message = Set(Some(format!("Upload started").to_owned()));
     obj.last_part_received = Set(Some(Utc::now().naive_utc().to_owned()));
 
     // let obj: db::Model = db::Entity::update(obj).exec(&db).await.unwrap();
-    match db::Entity::update(obj).exec(&db).await {
+    match InputObjectDB::Entity::update(obj).exec(&db).await {
         Ok(_) => Ok(PreCreateResponse {
             change_file_info: None,
             status: "Upload accepted".to_string(),
@@ -94,14 +121,12 @@ pub(super) async fn handle_post_receive(
     db: DatabaseConnection,
     payload: EventPayload,
 ) -> Result<PreCreateResponse> {
-    println!("Post receive event received");
-    let config: Config = Config::from_env();
-
+    println!("Handling post-receive");
     let upload_id = &payload.event.upload.id;
     // Split the s3_prefix and then the UUID out of the upload_id to get the object ID.
     // Then again with the + separator between UUID and TUSd upload ID
     let object_id: Uuid = upload_id
-        .split(&config.s3_prefix)
+        .split('/')
         .nth(1)
         .unwrap()
         .split('+')
@@ -114,8 +139,8 @@ pub(super) async fn handle_post_receive(
     let offset = payload.event.upload.offset;
     let uploaded_percentage = (offset as f64 / size_in_bytes as f64) * 100.0;
 
-    let obj = match db::Entity::find()
-        .filter(db::Column::Id.eq(object_id))
+    let obj = match InputObjectDB::Entity::find()
+        .filter(InputObjectDB::Column::Id.eq(object_id))
         .one(&db)
         .await
     {
@@ -123,7 +148,7 @@ pub(super) async fn handle_post_receive(
         _ => return Err(anyhow::anyhow!("Failed to find object")),
     };
 
-    let mut obj: db::ActiveModel = obj.unwrap().into();
+    let mut obj: InputObjectDB::ActiveModel = obj.unwrap().into();
 
     obj.processing_message = Set(Some(
         format!("Upload progress: {:.2}%", uploaded_percentage).to_owned(),
@@ -131,7 +156,7 @@ pub(super) async fn handle_post_receive(
     obj.last_part_received = Set(Some(Utc::now().naive_utc().to_owned()));
 
     // let obj: db::Model = db::Entity::update(obj).exec(&db).await.unwrap();
-    match db::Entity::update(obj).exec(&db).await {
+    match InputObjectDB::Entity::update(obj).exec(&db).await {
         Ok(_) => Ok(PreCreateResponse {
             change_file_info: None,
             status: "Upload progress updated".to_string(),
@@ -144,12 +169,10 @@ pub(super) async fn handle_pre_finish(
     db: DatabaseConnection,
     payload: EventPayload,
 ) -> Result<PreCreateResponse> {
-    println!("Pre finish event received");
-    let config: Config = Config::from_env();
-
+    println!("Handling pre-finish");
     let upload_id = &payload.event.upload.id;
     let object_id: Uuid = upload_id
-        .split(&config.s3_prefix)
+        .split('/')
         .nth(1)
         .unwrap()
         .split('+')
@@ -158,8 +181,8 @@ pub(super) async fn handle_pre_finish(
         .try_into()
         .unwrap();
 
-    let obj = match db::Entity::find()
-        .filter(db::Column::Id.eq(object_id))
+    let obj = match InputObjectDB::Entity::find()
+        .filter(InputObjectDB::Column::Id.eq(object_id))
         .one(&db)
         .await
     {
@@ -167,13 +190,13 @@ pub(super) async fn handle_pre_finish(
         _ => return Err(anyhow::anyhow!("Failed to find object")),
     };
 
-    let mut obj: db::ActiveModel = obj.unwrap().into();
+    let mut obj: InputObjectDB::ActiveModel = obj.unwrap().into();
 
     obj.processing_message = Set(Some("Upload completed".to_owned()));
     obj.all_parts_received = Set(true);
     obj.last_part_received = Set(Some(Utc::now().naive_utc().to_owned()));
 
-    match db::Entity::update(obj).exec(&db).await {
+    match InputObjectDB::Entity::update(obj).exec(&db).await {
         Ok(_) => Ok(PreCreateResponse {
             change_file_info: None,
             status: "Upload completed".to_string(),
@@ -186,12 +209,13 @@ pub(super) async fn handle_post_finish(
     db: DatabaseConnection,
     payload: EventPayload,
 ) -> Result<PreCreateResponse> {
-    println!("Post finish event received");
-    let config: Config = Config::from_env();
-
+    println!("Handling post-finish");
     let upload_id = &payload.event.upload.id;
+
+    // Unwrap the UUID from the upload_id. Something like this:
+    // labcaller/<uuid>+<tusd_upload_id> -> <uuid>
     let object_id: Uuid = upload_id
-        .split(&config.s3_prefix)
+        .split('/')
         .nth(1)
         .unwrap()
         .split('+')
@@ -200,8 +224,8 @@ pub(super) async fn handle_post_finish(
         .try_into()
         .unwrap();
 
-    let obj = match db::Entity::find()
-        .filter(db::Column::Id.eq(object_id))
+    let obj = match InputObjectDB::Entity::find()
+        .filter(InputObjectDB::Column::Id.eq(object_id))
         .one(&db)
         .await
     {
@@ -209,13 +233,13 @@ pub(super) async fn handle_post_finish(
         _ => return Err(anyhow::anyhow!("Failed to find object")),
     };
 
-    let mut obj: db::ActiveModel = obj.unwrap().into();
+    let mut obj: InputObjectDB::ActiveModel = obj.unwrap().into();
 
     obj.processing_message = Set(Some("Upload completed".to_owned()));
     obj.all_parts_received = Set(true);
     obj.last_part_received = Set(Some(Utc::now().naive_utc().to_owned()));
 
-    match db::Entity::update(obj).exec(&db).await {
+    match InputObjectDB::Entity::update(obj).exec(&db).await {
         Ok(_) => Ok(PreCreateResponse {
             change_file_info: None,
             status: "Upload completed".to_string(),

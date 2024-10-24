@@ -3,6 +3,14 @@ use crate::common::filter::{apply_filters, parse_range};
 use crate::common::models::FilterOptions;
 use crate::common::pagination::calculate_content_range;
 use crate::common::sort::generic_sort;
+use crate::config::Config;
+use crate::external::s3;
+use aws_config::BehaviorVersion;
+use aws_sdk_s3::config::Credentials;
+use aws_sdk_s3::operation::create_multipart_upload::CreateMultipartUploadOutput;
+use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
+use aws_sdk_s3::{config::Region, Client as S3Client};
+use aws_smithy_types::byte_stream::ByteStream;
 use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
     http::StatusCode,
@@ -12,17 +20,21 @@ use axum::{
 use axum_keycloak_auth::{
     instance::KeycloakAuthInstance, layer::KeycloakAuthLayer, PassthroughMode,
 };
-use sea_orm::{query::*, DatabaseConnection, EntityTrait};
+use sea_orm::{query::*, ColumnTrait, DatabaseConnection, EntityTrait};
 use std::sync::Arc;
 use uuid::Uuid;
 
 const RESOURCE_NAME: &str = "uploads";
 
-pub fn router(db: DatabaseConnection, keycloak_auth_instance: Arc<KeycloakAuthInstance>) -> Router {
+pub fn router(
+    db: DatabaseConnection,
+    keycloak_auth_instance: Arc<KeycloakAuthInstance>,
+    s3: Arc<S3Client>,
+) -> Router {
     Router::new()
         .route("/", routing::get(get_all))
         .route("/:id", routing::get(get_one).delete(delete_one))
-        .with_state(db)
+        .with_state((db, s3))
         .layer(DefaultBodyLimit::max(1073741824))
         .layer(
             KeycloakAuthLayer::<Role>::builder()
@@ -42,7 +54,7 @@ pub fn router(db: DatabaseConnection, keycloak_auth_instance: Arc<KeycloakAuthIn
 )]
 pub async fn get_all(
     Query(params): Query<FilterOptions>,
-    State(db): State<DatabaseConnection>,
+    State((db, _s3)): State<(DatabaseConnection, Arc<S3Client>)>,
 ) -> impl IntoResponse {
     let (offset, limit) = parse_range(params.range.clone());
 
@@ -75,7 +87,7 @@ pub async fn get_all(
         .unwrap();
 
     // Map the results from the database models
-    let response_objs: Vec<super::models::UploadReadOne> =
+    let response_objs: Vec<super::models::UploadRead> =
         objs.into_iter().map(|obj| obj.into()).collect();
 
     let total_count: u64 = <super::db::Entity>::find()
@@ -95,9 +107,9 @@ pub async fn get_all(
     responses((status = OK, body = super::models::Submission))
 )]
 pub async fn get_one(
-    State(db): State<DatabaseConnection>,
+    State((db, _s3)): State<(DatabaseConnection, Arc<S3Client>)>,
     Path(id): Path<Uuid>,
-) -> Result<Json<super::models::UploadReadOne>, (StatusCode, Json<String>)> {
+) -> Result<Json<super::models::UploadRead>, (StatusCode, Json<String>)> {
     let obj = super::db::Entity::find_by_id(id)
         .one(&db)
         .await
@@ -112,7 +124,29 @@ pub async fn get_one(
     path = format!("/api/{}/{{id}}", RESOURCE_NAME),
     responses((status = NO_CONTENT))
 )]
-pub async fn delete_one(State(db): State<DatabaseConnection>, Path(id): Path<Uuid>) -> StatusCode {
+pub async fn delete_one(
+    State((db, s3)): State<(DatabaseConnection, Arc<S3Client>)>,
+    Path(id): Path<Uuid>,
+) -> StatusCode {
+    // Delete all associations, then delete the object
+    super::associations::db::Entity::delete_many()
+        .filter(super::associations::db::Column::InputObjectId.eq(id.clone()))
+        .exec(&db)
+        .await
+        .unwrap();
+
+    // Delete from S3
+    let config = Config::from_env();
+    let s3_response = s3
+        .delete_object()
+        .bucket(config.s3_bucket)
+        .key(id.to_string())
+        .send()
+        .await
+        .unwrap();
+
+    println!("S3 response: {:?}", s3_response);
+
     match super::db::Entity::find_by_id(id).one(&db).await {
         Ok(Some(obj)) => {
             let obj: super::db::ActiveModel = obj.into();

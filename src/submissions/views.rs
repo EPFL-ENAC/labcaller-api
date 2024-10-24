@@ -151,13 +151,29 @@ pub async fn get_one(
     State(db): State<DatabaseConnection>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<super::models::Submission>, (StatusCode, Json<String>)> {
-    let obj = super::db::Entity::find_by_id(id)
+    let obj = match super::db::Entity::find_by_id(id)
+        // .find_also_related(crate::uploads::associations::db::Entity)
         .one(&db)
         .await
-        .map_err(|_| (StatusCode::NOT_FOUND, Json("Not found".to_string())))?
-        .ok_or((StatusCode::NOT_FOUND, Json("Not found".to_string())))?;
+    {
+        Ok(obj) => obj.unwrap(),
+        _ => return Err((StatusCode::NOT_FOUND, Json("Not Found".to_string()))),
+    };
 
-    Ok(Json(obj.into()))
+    let uploads = match obj.find_related(crate::uploads::db::Entity).all(&db).await {
+        // Return all or none. If any fail, return an error
+        Ok(uploads) => Some(uploads),
+        Err(_) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json("Server error".to_string()),
+            ))
+        }
+    };
+
+    let submission: super::models::Submission = (obj, uploads).into();
+
+    Ok(Json(submission))
 }
 
 #[utoipa::path(

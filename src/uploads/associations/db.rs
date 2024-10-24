@@ -10,36 +10,50 @@ pub struct Model {
     pub submission_id: Uuid,
 }
 
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+#[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
-    #[sea_orm(
-        belongs_to = "crate::uploads::db::Entity",
-        from = "Column::InputObjectId",
-        to = "crate::uploads::db::Column::Id",
-        on_update = "NoAction",
-        on_delete = "NoAction"
-    )]
+    // #[sea_orm(
+    //     belongs_to = "crate::uploads::db::Entity",
+    //     from = "Column::InputObjectId",
+    //     to = "crate::uploads::db::Column::Id",
+    //     on_update = "NoAction",
+    //     on_delete = "NoAction"
+    // )]
     FileObjects,
-    #[sea_orm(
-        belongs_to = "crate::submissions::db::Entity",
-        from = "Column::SubmissionId",
-        to = "crate::submissions::db::Column::Id",
-        on_update = "NoAction",
-        on_delete = "NoAction"
-    )]
+    // #[sea_orm(
+    //     belongs_to = "crate::submissions::db::Entity",
+    //     from = "Column::SubmissionId",
+    //     to = "crate::submissions::db::Column::Id",
+    //     on_update = "NoAction",
+    //     on_delete = "NoAction"
+    // )]
     Submissions,
 }
 
-impl Related<crate::uploads::db::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::FileObjects.def()
+// impl Related<crate::uploads::db::Entity> for Entity {
+//     fn to() -> RelationDef {
+//         Relation::FileObjects.def()
+//     }
+// }
+
+// impl Related<crate::submissions::db::Entity> for Entity {
+//     fn to() -> RelationDef {
+//         Relation::Submissions.def()
+//     }
+// }
+
+impl RelationTrait for Relation {
+    fn def(&self) -> RelationDef {
+        match self {
+            Self::FileObjects => Entity::belongs_to(crate::uploads::db::Entity)
+                .from(Column::InputObjectId)
+                .to(crate::uploads::db::Column::Id)
+                .into(),
+            Self::Submissions => Entity::belongs_to(crate::submissions::db::Entity)
+                .from(Column::SubmissionId)
+                .to(crate::submissions::db::Column::Id)
+                .into(),
+        }
     }
 }
-
-impl Related<crate::submissions::db::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Submissions.def()
-    }
-}
-
 impl ActiveModelBehavior for ActiveModel {}

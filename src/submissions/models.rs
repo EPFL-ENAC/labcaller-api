@@ -1,11 +1,11 @@
 use super::db::ActiveModel;
 use chrono::NaiveDateTime;
-use sea_orm::{DeriveIntoActiveModel, FromQueryResult, NotSet, Set};
+use sea_orm::{DeriveIntoActiveModel, NotSet, Set};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-#[derive(ToSchema, Serialize, FromQueryResult)]
+#[derive(ToSchema, Serialize)]
 pub struct Submission {
     id: Uuid,
     name: String,
@@ -14,6 +14,7 @@ pub struct Submission {
     comment: Option<String>,
     created_on: NaiveDateTime,
     last_updated: NaiveDateTime,
+    associations: Option<Vec<crate::uploads::models::UploadRead>>,
 }
 
 impl From<super::db::Model> for Submission {
@@ -26,9 +27,52 @@ impl From<super::db::Model> for Submission {
             comment: model.comment,
             created_on: model.created_on,
             last_updated: model.last_updated,
+            associations: None,
         }
     }
 }
+
+impl From<(super::db::Model, Option<Vec<crate::uploads::db::Model>>)> for Submission {
+    fn from(model_tuple: (super::db::Model, Option<Vec<crate::uploads::db::Model>>)) -> Self {
+        let submission = model_tuple.0;
+        let uploads = model_tuple.1;
+
+        Self {
+            id: submission.id,
+            name: submission.name,
+            processing_has_started: submission.processing_has_started,
+            processing_success: submission.processing_success,
+            comment: submission.comment,
+            created_on: submission.created_on,
+            last_updated: submission.last_updated,
+            associations: Some(
+                uploads
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|association| association.into())
+                    .collect(),
+            ),
+        }
+    }
+}
+
+// impl From<(super::db::Model, crate::uploads::associations::db::Model)> for Submission {
+//     fn from(model_tuple: (super::db::Model, crate::uploads::associations::db::Model)) -> Self {
+//         let submission = model_tuple.0;
+//         let upload_association = model_tuple.1;
+
+//         Self {
+//             id: submission.id,
+//             name: submission.name,
+//             processing_has_started: submission.processing_has_started,
+//             processing_success: submission.processing_success,
+//             comment: submission.comment,
+//             created_on: submission.created_on,
+//             last_updated: submission.last_updated,
+//             associations:
+//         }
+//     }
+// }
 
 #[derive(ToSchema, Deserialize, Serialize, DeriveIntoActiveModel)]
 pub struct SubmissionCreate {
@@ -60,13 +104,13 @@ impl From<SubmissionUpdate> for ActiveModel {
         Self {
             name: match update.name {
                 Some(Some(name)) => Set(name),
-                Some(None) => NotSet,
-                None => NotSet,
+                Some(_) => NotSet,
+                _ => NotSet,
             },
             comment: match update.comment {
                 Some(Some(comment)) => Set(Some(comment)),
-                Some(None) => Set(None),
-                None => NotSet,
+                Some(_) => Set(None),
+                _ => NotSet,
             },
             last_updated: Set(chrono::Utc::now().naive_utc()),
             id: NotSet,
@@ -83,14 +127,14 @@ impl SubmissionUpdate {
 
         model.name = match self.name {
             Some(Some(ref name)) => Set(name.clone()),
-            Some(None) => NotSet,
-            None => NotSet,
+            Some(_) => NotSet,
+            _ => NotSet,
         };
 
         model.comment = match self.comment {
             Some(Some(ref comment)) => Set(Some(comment.clone())),
-            Some(None) => Set(None),
-            None => NotSet,
+            Some(_) => Set(None),
+            _ => NotSet,
         };
         model.last_updated = Set(chrono::Utc::now().naive_utc());
 

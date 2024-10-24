@@ -17,13 +17,17 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "crate::uploads::associations::db::Entity")]
+    #[sea_orm(has_many = "crate::submissions::db::Entity")]
     FileObjectAssociations,
 }
 
-impl Related<crate::uploads::associations::db::Entity> for Entity {
+impl Related<crate::submissions::db::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::FileObjectAssociations.def()
+        super::associations::db::Relation::Submissions.def()
+    }
+
+    fn via() -> Option<RelationDef> {
+        Some(super::associations::db::Relation::FileObjects.def().rev())
     }
 }
 
