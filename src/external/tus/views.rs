@@ -44,6 +44,7 @@ pub async fn handle_tus_hooks(
                 Json(PreCreateResponse {
                     change_file_info: None,
                     status: "error".to_string(),
+                    ..Default::default()
                 }),
             ),
         },
@@ -54,6 +55,7 @@ pub async fn handle_tus_hooks(
                 Json(PreCreateResponse {
                     change_file_info: None,
                     status: "error".to_string(),
+                    ..Default::default()
                 }),
             ),
         },
@@ -64,6 +66,7 @@ pub async fn handle_tus_hooks(
                 Json(PreCreateResponse {
                     change_file_info: None,
                     status: "error".to_string(),
+                    ..Default::default()
                 }),
             ),
         },
@@ -74,6 +77,7 @@ pub async fn handle_tus_hooks(
                 Json(PreCreateResponse {
                     change_file_info: None,
                     status: "error".to_string(),
+                    ..Default::default()
                 }),
             ),
         },
@@ -85,6 +89,7 @@ pub async fn handle_tus_hooks(
                 Json(PreCreateResponse {
                     change_file_info: None,
                     status: "error".to_string(),
+                    ..Default::default()
                 }),
             ),
         },
@@ -95,6 +100,7 @@ pub async fn handle_tus_hooks(
                 Json(PreCreateResponse {
                     change_file_info: None,
                     status: "error".to_string(),
+                    ..Default::default()
                 }),
             ),
         },
@@ -103,6 +109,7 @@ pub async fn handle_tus_hooks(
             Json(PreCreateResponse {
                 change_file_info: None,
                 status: "Unknown event type".to_string(),
+                ..Default::default()
             }),
         ),
     }

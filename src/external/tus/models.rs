@@ -170,8 +170,40 @@ pub struct ChangeFileInfo {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct HttpResponse {
+    #[serde(rename = "StatusCode")]
+    pub status_code: Option<u64>,
+    #[serde(rename = "Header")]
+    pub header: Option<Header>,
+    #[serde(rename = "Body")]
+    pub body: Option<String>,
+}
+
+impl Default for HttpResponse {
+    fn default() -> Self {
+        Self {
+            status_code: None,
+            header: None,
+            body: None,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct PreCreateResponse {
     #[serde(rename = "ChangeFileInfo")]
     pub change_file_info: Option<ChangeFileInfo>,
+    #[serde(rename = "HTTPResponse")]
+    pub http_response: Option<HttpResponse>,
     pub status: String,
+}
+
+impl Default for PreCreateResponse {
+    fn default() -> Self {
+        Self {
+            change_file_info: None,
+            http_response: None,
+            status: String::new(),
+        }
+    }
 }
