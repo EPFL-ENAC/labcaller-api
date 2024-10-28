@@ -4,13 +4,7 @@ use crate::common::models::FilterOptions;
 use crate::common::pagination::calculate_content_range;
 use crate::common::sort::generic_sort;
 use crate::config::Config;
-use crate::external::s3;
-use aws_config::BehaviorVersion;
-use aws_sdk_s3::config::Credentials;
-use aws_sdk_s3::operation::create_multipart_upload::CreateMultipartUploadOutput;
-use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
-use aws_sdk_s3::{config::Region, Client as S3Client};
-use aws_smithy_types::byte_stream::ByteStream;
+use aws_sdk_s3::Client as S3Client;
 use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
     http::StatusCode,

@@ -2,7 +2,6 @@ use super::models::{ChangeFileInfo, PreCreateResponse};
 use crate::external::tus::models::EventPayload;
 use crate::uploads::associations::db as AssociationDB;
 use crate::uploads::db as InputObjectDB;
-use crate::{config::Config, external::db};
 use anyhow::Result;
 use chrono::Utc;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, ModelTrait, QueryFilter, Set};
@@ -13,7 +12,7 @@ pub(super) async fn handle_pre_create(
     payload: EventPayload,
 ) -> Result<PreCreateResponse> {
     println!("Handling pre-create");
-    let config: Config = Config::from_env();
+
     let filename = payload.event.upload.metadata.filename;
     let filetype = payload.event.upload.metadata.filetype;
     let size_in_bytes = payload.event.upload.size;
@@ -89,7 +88,7 @@ pub(super) async fn handle_post_create(
         .and_then(|id_str| Uuid::parse_str(id_str).ok())
     {
         Some(id) => id,
-        None => {
+        _ => {
             println!("Invalid object ID in upload_id");
             return Err(anyhow::anyhow!("Invalid object ID in upload_id"));
         }
@@ -132,7 +131,7 @@ pub(super) async fn handle_post_receive(
         .and_then(|id_str| Uuid::parse_str(id_str).ok())
     {
         Some(id) => id,
-        None => {
+        _ => {
             println!("Invalid object ID in upload_id");
             return Err(anyhow::anyhow!("Invalid object ID in upload_id"));
         }
@@ -152,7 +151,7 @@ pub(super) async fn handle_post_receive(
     };
 
     // Don't update if all parts have been received, it's already 100%
-    if (obj.clone().unwrap().all_parts_received == true) {
+    if obj.clone().unwrap().all_parts_received == true {
         return Ok(PreCreateResponse {
             change_file_info: None,
             status: "Upload progress updated".to_string(),
@@ -232,7 +231,7 @@ pub(super) async fn handle_post_finish(
         .and_then(|id_str| Uuid::parse_str(id_str).ok())
     {
         Some(id) => id,
-        None => {
+        _ => {
             println!("Invalid object ID in upload_id");
             return Err(anyhow::anyhow!("Invalid object ID in upload_id"));
         }
@@ -277,7 +276,7 @@ pub(super) async fn handle_post_terminate(
         .and_then(|id_str| Uuid::parse_str(id_str).ok())
     {
         Some(id) => id,
-        None => {
+        _ => {
             println!("Invalid object ID in upload_id");
             return Err(anyhow::anyhow!("Invalid object ID in upload_id"));
         }

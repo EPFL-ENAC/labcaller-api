@@ -1,14 +1,10 @@
 use super::models::{HealthCheck, ServiceStatus};
+use crate::common::models::UIConfiguration;
 use crate::external::db;
 use crate::external::db::ServiceName;
 use crate::external::k8s::services::get_pods;
-use crate::{common::models::UIConfiguration, external::s3};
 use axum::{extract::State, http::StatusCode, Json};
-use sea_orm::{
-    ColumnTrait, DatabaseConnection, EntityTrait, ModelTrait, QueryFilter, QueryOrder, QuerySelect,
-    Set,
-};
-use std::sync::Arc;
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 
 #[utoipa::path(
     get,

@@ -3,7 +3,6 @@ use super::models::ServiceCreate;
 use crate::config::Config;
 use crate::external::db::ServiceName;
 use anyhow::{anyhow, Result};
-use k8s_openapi::api::core::v1::Service;
 use sea_orm::{Database, DatabaseConnection, EntityTrait};
 
 async fn check_kubernetes() -> Result<serde_json::Value> {
