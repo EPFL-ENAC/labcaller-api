@@ -39,3 +39,9 @@ impl UIConfiguration {
 pub struct HealthCheck {
     pub status: String,
 }
+
+#[derive(ToSchema, Deserialize, Serialize)]
+pub struct ServiceStatus {
+    pub s3_status: bool,
+    pub kubernetes_status: bool,
+}

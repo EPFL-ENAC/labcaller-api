@@ -22,6 +22,7 @@ pub struct Config {
     pub deployment: String,
     pub _kube_config: PathBuf,
     pub kube_namespace: String,
+    pub interval_external_services: u64,
 
     pub s3_prefix: String,  // Prefix within the bucket, ie. labcaller-dev
     pub pod_prefix: String, // What is prefixed to the pod name, ie. labcaller-dev}
@@ -69,6 +70,10 @@ impl Config {
                 .expect("KUBECONFIG must be set")
                 .into(),
             kube_namespace: env::var("KUBE_NAMESPACE").expect("KUBE_NAMESPACE must be set"),
+            interval_external_services: env::var("INTERVAL_EXTERNAL_SERVICES")
+                .unwrap_or_else(|_| "60".to_string())
+                .parse()
+                .unwrap(),
             db_prefix,
             db_url,
             s3_prefix,

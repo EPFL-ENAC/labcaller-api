@@ -151,6 +151,13 @@ pub(super) async fn handle_post_receive(
         _ => return Err(anyhow::anyhow!("Failed to find object")),
     };
 
+    // Don't update if all parts have been received, it's already 100%
+    if (obj.clone().unwrap().all_parts_received == true) {
+        return Ok(PreCreateResponse {
+            change_file_info: None,
+            status: "Upload progress updated".to_string(),
+        });
+    }
     let mut obj: InputObjectDB::ActiveModel = obj.unwrap().into();
 
     obj.processing_message = Set(Some(

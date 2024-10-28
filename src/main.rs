@@ -51,6 +51,7 @@ async fn main() {
     let app: Router = Router::new()
         .route("/healthz", get(common::views::healthz))
         .route("/api/config", get(common::views::get_ui_config))
+        .route("/api/status", get(common::views::get_status))
         .with_state(db.clone())
         .nest(
             "/api/submissions",
@@ -81,7 +82,7 @@ async fn main() {
         _ = tokio::spawn(async move {
             loop {
                 crate::external::services::check_external_services().await;
-                tokio::time::sleep(Duration::from_secs(300)).await;
+                tokio::time::sleep(Duration::from_secs(config.interval_external_services)).await;
             }
         }) => {
             println!("Background task finished unexpectedly.");
