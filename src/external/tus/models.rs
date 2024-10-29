@@ -196,6 +196,8 @@ pub struct PreCreateResponse {
     #[serde(rename = "HTTPResponse")]
     pub http_response: Option<HttpResponse>,
     pub status: String,
+    #[serde(rename = "RejectUpload")]
+    pub reject_upload: bool,
 }
 
 impl Default for PreCreateResponse {
@@ -204,6 +206,7 @@ impl Default for PreCreateResponse {
             change_file_info: None,
             http_response: None,
             status: String::new(),
+            reject_upload: false,
         }
     }
 }

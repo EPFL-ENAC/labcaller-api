@@ -58,6 +58,7 @@ pub(super) async fn handle_pre_create(
                 ),
                 ..Default::default()
             }),
+            reject_upload: true,
             ..Default::default()
         });
     }
