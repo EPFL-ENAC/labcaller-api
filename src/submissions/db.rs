@@ -17,10 +17,13 @@ pub struct Model {
     pub created_on: NaiveDateTime,
     pub last_updated: NaiveDateTime,
 }
+
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(has_many = "crate::uploads::db::Entity")]
     FileObjectAssociations,
+    #[sea_orm(has_many = "crate::submissions::run_status::db::Entity")]
+    RunStatus,
 }
 
 impl Related<crate::uploads::db::Entity> for Entity {
@@ -34,6 +37,13 @@ impl Related<crate::uploads::db::Entity> for Entity {
                 .def()
                 .rev(),
         )
+    }
+}
+
+// Implement the Related trait for RunStatus to complete the relationship
+impl Related<crate::submissions::run_status::db::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::RunStatus.def()
     }
 }
 

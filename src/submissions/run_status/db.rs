@@ -29,6 +29,7 @@ pub enum Relation {
     Submissions,
 }
 
+// Implement the relationship back to Submission
 impl Related<crate::submissions::db::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Submissions.def()

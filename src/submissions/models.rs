@@ -15,6 +15,7 @@ pub struct Submission {
     created_on: NaiveDateTime,
     last_updated: NaiveDateTime,
     pub(super) associations: Option<Vec<crate::uploads::models::UploadRead>>,
+    outputs: Option<Vec<crate::external::s3::models::OutputObject>>,
 }
 
 impl From<super::db::Model> for Submission {
@@ -28,15 +29,28 @@ impl From<super::db::Model> for Submission {
             created_on: model.created_on,
             last_updated: model.last_updated,
             associations: None,
+            outputs: None,
         }
     }
 }
 
-impl From<(super::db::Model, Option<Vec<crate::uploads::db::Model>>)> for Submission {
-    fn from(model_tuple: (super::db::Model, Option<Vec<crate::uploads::db::Model>>)) -> Self {
+impl
+    From<(
+        super::db::Model,
+        Option<Vec<crate::uploads::db::Model>>,
+        Vec<crate::external::s3::models::OutputObject>,
+    )> for Submission
+{
+    fn from(
+        model_tuple: (
+            super::db::Model,
+            Option<Vec<crate::uploads::db::Model>>,
+            Vec<crate::external::s3::models::OutputObject>,
+        ),
+    ) -> Self {
         let submission = model_tuple.0;
         let uploads = model_tuple.1;
-
+        let outputs = model_tuple.2;
         Self {
             id: submission.id,
             name: submission.name,
@@ -52,6 +66,7 @@ impl From<(super::db::Model, Option<Vec<crate::uploads::db::Model>>)> for Submis
                     .map(|association| association.into())
                     .collect(),
             ),
+            outputs: Some(outputs),
         }
     }
 }

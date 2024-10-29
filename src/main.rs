@@ -55,7 +55,11 @@ async fn main() {
         .with_state(db.clone())
         .nest(
             "/api/submissions",
-            submissions::views::router(db.clone(), keycloak_auth_instance.clone()),
+            submissions::views::router(
+                db.clone(),
+                keycloak_auth_instance.clone(),
+                s3_client.clone(),
+            ),
         )
         .nest(
             "/api/uploads",

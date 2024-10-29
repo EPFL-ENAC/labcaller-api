@@ -57,3 +57,4 @@ thiserror = "1.0.64"
 tokio-util = "0.7.12"
 rand = "0.8.5"
 schemars = "0.8.21"
+aws-smithy-types-convert = { version = "0.60.8", features = ["convert-chrono"] }

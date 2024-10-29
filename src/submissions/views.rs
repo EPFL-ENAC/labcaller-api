@@ -7,6 +7,7 @@ use crate::external::k8s::crd::{
     Environment, EnvironmentItems, TrainingWorkload, TrainingWorkloadSpec, ValueField,
 };
 use anyhow::Result;
+use aws_sdk_s3::Client as S3Client;
 use axum::{
     debug_handler,
     extract::{Path, Query, State},
@@ -26,7 +27,11 @@ use sea_orm::{
 use std::sync::Arc;
 use uuid::Uuid;
 
-pub fn router(db: DatabaseConnection, keycloak_auth_instance: Arc<KeycloakAuthInstance>) -> Router {
+pub fn router(
+    db: DatabaseConnection,
+    keycloak_auth_instance: Arc<KeycloakAuthInstance>,
+    s3: Arc<S3Client>,
+) -> Router {
     Router::new()
         .route("/", routing::get(get_all).post(create_one))
         .route(
@@ -36,7 +41,7 @@ pub fn router(db: DatabaseConnection, keycloak_auth_instance: Arc<KeycloakAuthIn
                 .delete(delete_one)
                 .post(execute_workflow),
         )
-        .with_state(db)
+        .with_state((db, s3))
         .layer(
             KeycloakAuthLayer::<Role>::builder()
                 .instance(keycloak_auth_instance)
@@ -57,7 +62,7 @@ const RESOURCE_NAME: &str = "submissions";
 )]
 pub async fn get_all(
     Query(params): Query<FilterOptions>,
-    State(db): State<DatabaseConnection>,
+    State((db, _s3)): State<(DatabaseConnection, Arc<S3Client>)>,
 ) -> impl IntoResponse {
     let (offset, limit) = parse_range(params.range.clone());
 
@@ -110,7 +115,7 @@ pub async fn get_all(
     responses((status = CREATED, body = super::models::Submission))
 )]
 pub async fn create_one(
-    State(db): State<DatabaseConnection>,
+    State((db, _s3)): State<(DatabaseConnection, Arc<S3Client>)>,
     Json(payload): Json<super::models::SubmissionCreate>,
 ) -> Result<(StatusCode, Json<super::models::Submission>), (StatusCode, Json<String>)> {
     let new_obj = super::db::Model {
@@ -158,7 +163,7 @@ pub async fn create_one(
     responses((status = OK, body = super::models::Submission))
 )]
 pub async fn get_one(
-    State(db): State<DatabaseConnection>,
+    State((db, s3)): State<(DatabaseConnection, Arc<S3Client>)>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<super::models::Submission>, (StatusCode, Json<String>)> {
     let obj = match super::db::Entity::find_by_id(id)
@@ -169,6 +174,10 @@ pub async fn get_one(
         Ok(obj) => obj.unwrap(),
         _ => return Err((StatusCode::NOT_FOUND, Json("Not Found".to_string()))),
     };
+    let outputs: Vec<crate::external::s3::models::OutputObject> =
+        crate::external::s3::services::get_outputs_from_id(s3, obj.id)
+            .await
+            .unwrap();
 
     let uploads = match obj.find_related(crate::uploads::db::Entity).all(&db).await {
         // Return all or none. If any fail, return an error
@@ -181,7 +190,7 @@ pub async fn get_one(
         }
     };
 
-    let submission: super::models::Submission = (obj, uploads).into();
+    let submission: super::models::Submission = (obj, uploads, outputs).into();
 
     Ok(Json(submission))
 }
@@ -192,7 +201,7 @@ pub async fn get_one(
     responses((status = OK, body = super::models::Submission))
 )]
 pub async fn update_one(
-    State(db): State<DatabaseConnection>,
+    State((db, _s3)): State<(DatabaseConnection, Arc<S3Client>)>,
     Path(id): Path<Uuid>,
     Json(payload): Json<super::models::SubmissionUpdate>,
 ) -> impl IntoResponse {
@@ -218,7 +227,10 @@ pub async fn update_one(
     path = format!("/api/{}/{{id}}", RESOURCE_NAME),
     responses((status = NO_CONTENT))
 )]
-pub async fn delete_one(State(db): State<DatabaseConnection>, Path(id): Path<Uuid>) -> StatusCode {
+pub async fn delete_one(
+    State((db, _s3)): State<(DatabaseConnection, Arc<S3Client>)>,
+    Path(id): Path<Uuid>,
+) -> StatusCode {
     let obj = super::db::Entity::find_by_id(id)
         .one(&db)
         .await
@@ -236,7 +248,7 @@ pub async fn delete_one(State(db): State<DatabaseConnection>, Path(id): Path<Uui
 
 #[debug_handler]
 pub async fn execute_workflow(
-    State(db): State<DatabaseConnection>,
+    State((db, _s3)): State<(DatabaseConnection, Arc<S3Client>)>,
     Path(id): Path<Uuid>,
 ) -> StatusCode {
     // Generate a unique job name
