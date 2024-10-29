@@ -15,7 +15,7 @@ pub struct Submission {
     created_on: NaiveDateTime,
     last_updated: NaiveDateTime,
     pub(super) associations: Option<Vec<crate::uploads::models::UploadRead>>,
-    outputs: Option<Vec<crate::external::s3::models::OutputObject>>,
+    outputs: Option<Vec<crate::external::s3::models::OutputObjectResponse>>,
 }
 
 impl From<super::db::Model> for Submission {
@@ -66,28 +66,10 @@ impl
                     .map(|association| association.into())
                     .collect(),
             ),
-            outputs: Some(outputs),
+            outputs: Some(outputs.into_iter().map(|output| output.into()).collect()),
         }
     }
 }
-
-// impl From<(super::db::Model, crate::uploads::associations::db::Model)> for Submission {
-//     fn from(model_tuple: (super::db::Model, crate::uploads::associations::db::Model)) -> Self {
-//         let submission = model_tuple.0;
-//         let upload_association = model_tuple.1;
-
-//         Self {
-//             id: submission.id,
-//             name: submission.name,
-//             processing_has_started: submission.processing_has_started,
-//             processing_success: submission.processing_success,
-//             comment: submission.comment,
-//             created_on: submission.created_on,
-//             last_updated: submission.last_updated,
-//             associations:
-//         }
-//     }
-// }
 
 #[derive(ToSchema, Deserialize, Serialize, DeriveIntoActiveModel)]
 pub struct SubmissionCreate {
