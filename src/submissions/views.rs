@@ -3,6 +3,9 @@ use crate::common::filter::{apply_filters, parse_range};
 use crate::common::models::FilterOptions;
 use crate::common::pagination::calculate_content_range;
 use crate::common::sort::generic_sort;
+// use crate::external::k8s::crd::DictionaryField;
+use anyhow::Result;
+use axum::debug_handler;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -12,10 +15,14 @@ use axum::{
 use axum_keycloak_auth::{
     instance::KeycloakAuthInstance, layer::KeycloakAuthLayer, PassthroughMode,
 };
+use kube::api::PostParams;
+use kube::Api;
+use rand::Rng;
 use sea_orm::{
     query::*, ActiveModelTrait, DatabaseConnection, DeleteResult, EntityTrait, IntoActiveModel,
     ModelTrait, SqlErr,
 };
+use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -24,7 +31,10 @@ pub fn router(db: DatabaseConnection, keycloak_auth_instance: Arc<KeycloakAuthIn
         .route("/", routing::get(get_all).post(create_one))
         .route(
             "/:id",
-            routing::get(get_one).put(update_one).delete(delete_one),
+            routing::get(get_one)
+                .put(update_one)
+                .delete(delete_one)
+                .post(execute_workflow),
         )
         .with_state(db)
         .layer(
@@ -222,4 +232,126 @@ pub async fn delete_one(State(db): State<DatabaseConnection>, Path(id): Path<Uui
     }
 
     StatusCode::NO_CONTENT
+}
+
+// use axum::{extract::{Path, State}, http::StatusCode};
+// use rand::Rng;
+// use sea_orm::{DatabaseConnection, EntityTrait, QueryFilter};
+// use uuid::Uuid;
+// use kube::{Api, Client};
+// use kube::api::PostParams;
+// use crate::config::Config;
+use crate::external::k8s::crd::{
+    Environment,
+    EnvironmentItems,
+    // TrainingEnvironment, TrainingEnvironmentItems,
+    TrainingWorkload,
+    TrainingWorkloadSpec,
+    ValueField,
+};
+// use crate::external::k8s::services::PodName;
+use kube::api::ListParams;
+
+#[debug_handler]
+pub async fn execute_workflow(
+    State(db): State<DatabaseConnection>,
+    Path(id): Path<Uuid>,
+) -> StatusCode {
+    // Generate a unique job name
+    let random_number: u32 = rand::thread_rng().gen_range(10000..99999);
+    let job_name = format!("labcaller-{}-{}", id, random_number);
+
+    // Fetch submission and related uploads
+    let obj = match super::db::Entity::find_by_id(id).one(&db).await {
+        Ok(Some(submission)) => submission,
+        _ => return StatusCode::NOT_FOUND,
+    };
+
+    let input_object_ids: Vec<Uuid> = obj
+        .find_related(crate::uploads::db::Entity)
+        .all(&db)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|assoc| assoc.id)
+        .collect();
+
+    // Set up Kubernetes client and configuration
+    let config = crate::config::Config::from_env();
+    let client = match crate::external::k8s::services::refresh_token_and_get_client().await {
+        Ok(client) => client,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
+    };
+
+    // Create the `TrainingWorkload` custom resource instance
+
+    let training_workload = TrainingWorkload::new(
+        &job_name,
+        TrainingWorkloadSpec {
+            allow_privilege_escalation: Some(ValueField { value: true }),
+            environment: Environment {
+                items: EnvironmentItems {
+                    input_object_ids: ValueField {
+                        value: serde_json::to_string(&input_object_ids).unwrap(),
+                    },
+                    s3_access_key: ValueField {
+                        value: config.s3_access_key.to_string(),
+                    },
+                    s3_bucket_id: ValueField {
+                        value: config.s3_bucket.to_string(),
+                    },
+                    s3_prefix: ValueField {
+                        value: config.s3_prefix.to_string(),
+                    },
+                    s3_secret_key: ValueField {
+                        value: config.s3_secret_key.to_string(),
+                    },
+                    s3_url: ValueField {
+                        value: config.s3_url.to_string(),
+                    },
+                    submission_id: ValueField {
+                        value: id.to_string(),
+                    },
+                    base_image: ValueField {
+                        value: "registry.rcp.epfl.ch/rcp-test-ejthomas/dorado:0.2".to_string(),
+                    },
+                },
+            },
+            gpu: ValueField {
+                value: "1".to_string(),
+            },
+            image: ValueField {
+                value: "registry.rcp.epfl.ch/rcp-test-ejthomas/dorado:0.2".to_string(),
+            },
+            image_pull_policy: ValueField {
+                value: "Always".to_string(),
+            },
+            name: ValueField {
+                value: job_name.clone(),
+            },
+            run_as_gid: None,
+            run_as_uid: None,
+            run_as_user: None,
+            // run_as_gid: Some(ValueField { value: 1000 }),
+            // run_as_uid: Some(ValueField { value: 1000 }),
+            // run_as_user: Some(ValueField { value: true }),
+            service_type: None, // or Some(ValueField { value: "service_type_value".to_string() })
+            usage: Some("Submit".to_string()),
+        },
+    );
+
+    println!("Submitting TrainingWorkload: {:?}", training_workload);
+    // Submit the custom resource to Kubernetes
+    let api: Api<TrainingWorkload> = Api::namespaced(client, &config.kube_namespace);
+
+    match api.create(&PostParams::default(), &training_workload).await {
+        Ok(_) => {
+            println!("Submitted TrainingWorkload: {}", job_name);
+            StatusCode::CREATED
+        }
+        Err(e) => {
+            eprintln!("Failed to submit TrainingWorkload: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
 }

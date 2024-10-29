@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-#[derive(ToSchema, Serialize)]
+#[derive(ToSchema, Serialize, Debug)]
 pub struct Submission {
     id: Uuid,
     name: String,
@@ -14,7 +14,7 @@ pub struct Submission {
     comment: Option<String>,
     created_on: NaiveDateTime,
     last_updated: NaiveDateTime,
-    associations: Option<Vec<crate::uploads::models::UploadRead>>,
+    pub(super) associations: Option<Vec<crate::uploads::models::UploadRead>>,
 }
 
 impl From<super::db::Model> for Submission {

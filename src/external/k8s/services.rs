@@ -81,7 +81,7 @@ pub async fn get_pods() -> Result<Option<Vec<PodName>>> {
     Ok(Some(pods))
 }
 
-async fn refresh_token_and_get_client() -> Result<Client> {
+pub async fn refresh_token_and_get_client() -> Result<Client> {
     let app_config = Config::from_env();
 
     // Read and parse the kubeconfig file

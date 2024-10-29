@@ -4,9 +4,9 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-#[derive(ToSchema, Serialize, FromQueryResult)]
+#[derive(ToSchema, Serialize, FromQueryResult, Debug)]
 pub struct UploadRead {
-    id: Uuid,
+    pub id: Uuid,
     created_on: NaiveDateTime,
     filename: String,
     size_bytes: i64,
