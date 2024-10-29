@@ -3,10 +3,12 @@ use crate::common::filter::{apply_filters, parse_range};
 use crate::common::models::FilterOptions;
 use crate::common::pagination::calculate_content_range;
 use crate::common::sort::generic_sort;
-// use crate::external::k8s::crd::DictionaryField;
+use crate::external::k8s::crd::{
+    Environment, EnvironmentItems, TrainingWorkload, TrainingWorkloadSpec, ValueField,
+};
 use anyhow::Result;
-use axum::debug_handler;
 use axum::{
+    debug_handler,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
@@ -15,14 +17,12 @@ use axum::{
 use axum_keycloak_auth::{
     instance::KeycloakAuthInstance, layer::KeycloakAuthLayer, PassthroughMode,
 };
-use kube::api::PostParams;
-use kube::Api;
+use kube::{api::PostParams, Api};
 use rand::Rng;
 use sea_orm::{
     query::*, ActiveModelTrait, DatabaseConnection, DeleteResult, EntityTrait, IntoActiveModel,
     ModelTrait, SqlErr,
 };
-use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -234,24 +234,6 @@ pub async fn delete_one(State(db): State<DatabaseConnection>, Path(id): Path<Uui
     StatusCode::NO_CONTENT
 }
 
-// use axum::{extract::{Path, State}, http::StatusCode};
-// use rand::Rng;
-// use sea_orm::{DatabaseConnection, EntityTrait, QueryFilter};
-// use uuid::Uuid;
-// use kube::{Api, Client};
-// use kube::api::PostParams;
-// use crate::config::Config;
-use crate::external::k8s::crd::{
-    Environment,
-    EnvironmentItems,
-    // TrainingEnvironment, TrainingEnvironmentItems,
-    TrainingWorkload,
-    TrainingWorkloadSpec,
-    ValueField,
-};
-// use crate::external::k8s::services::PodName;
-use kube::api::ListParams;
-
 #[debug_handler]
 pub async fn execute_workflow(
     State(db): State<DatabaseConnection>,
@@ -283,8 +265,11 @@ pub async fn execute_workflow(
         Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
     };
 
-    // Create the `TrainingWorkload` custom resource instance
-
+    let base_image = format!(
+        "{}:{}",
+        config.submission_base_image, config.submission_base_image_tag,
+    );
+    // Create a new TrainingWorkload custom resource
     let training_workload = TrainingWorkload::new(
         &job_name,
         TrainingWorkloadSpec {
@@ -313,16 +298,14 @@ pub async fn execute_workflow(
                         value: id.to_string(),
                     },
                     base_image: ValueField {
-                        value: "registry.rcp.epfl.ch/rcp-test-ejthomas/dorado:0.2".to_string(),
+                        value: base_image.clone(),
                     },
                 },
             },
             gpu: ValueField {
                 value: "1".to_string(),
             },
-            image: ValueField {
-                value: "registry.rcp.epfl.ch/rcp-test-ejthomas/dorado:0.2".to_string(),
-            },
+            image: ValueField { value: base_image },
             image_pull_policy: ValueField {
                 value: "Always".to_string(),
             },
@@ -332,10 +315,7 @@ pub async fn execute_workflow(
             run_as_gid: None,
             run_as_uid: None,
             run_as_user: None,
-            // run_as_gid: Some(ValueField { value: 1000 }),
-            // run_as_uid: Some(ValueField { value: 1000 }),
-            // run_as_user: Some(ValueField { value: true }),
-            service_type: None, // or Some(ValueField { value: "service_type_value".to_string() })
+            service_type: None,
             usage: Some("Submit".to_string()),
         },
     );
