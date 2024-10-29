@@ -3,7 +3,6 @@ use crate::common::filter::{apply_filters, parse_range};
 use crate::common::models::FilterOptions;
 use crate::common::pagination::calculate_content_range;
 use crate::common::sort::generic_sort;
-use crate::config::Config;
 use aws_sdk_s3::Client as S3Client;
 use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
@@ -14,7 +13,7 @@ use axum::{
 use axum_keycloak_auth::{
     instance::KeycloakAuthInstance, layer::KeycloakAuthLayer, PassthroughMode,
 };
-use sea_orm::{query::*, ColumnTrait, DatabaseConnection, EntityTrait};
+use sea_orm::{query::*, DatabaseConnection, EntityTrait};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -122,46 +121,16 @@ pub async fn delete_one(
     State((db, s3)): State<(DatabaseConnection, Arc<S3Client>)>,
     Path(id): Path<Uuid>,
 ) -> StatusCode {
-    // Delete all associations, then delete the object
-    super::associations::db::Entity::delete_many()
-        .filter(super::associations::db::Column::InputObjectId.eq(id.clone()))
-        .exec(&db)
-        .await
-        .unwrap();
-
-    match super::db::Entity::find_by_id(id).one(&db).await {
-        Ok(Some(obj)) => {
-            let obj: super::db::ActiveModel = obj.into();
-
-            match super::db::Entity::delete(obj).exec(&db).await {
-                Ok(res) => {
-                    if res.rows_affected == 0 {
-                        return StatusCode::NOT_FOUND;
-                    }
-
-                    // Delete from S3
-                    let config = Config::from_env();
-                    let s3_response = s3
-                        .delete_object()
-                        .bucket(config.s3_bucket)
-                        .key(format!("{}/{}", config.s3_prefix, id))
-                        .send()
-                        .await
-                        .unwrap();
-
-                    println!("S3 response: {:?}", s3_response);
-                    return StatusCode::NO_CONTENT;
-                }
-                Err(_) => {
-                    return StatusCode::INTERNAL_SERVER_ERROR;
-                }
+    match super::services::delete_object(&db, &s3, id).await {
+        Ok(_) => StatusCode::NO_CONTENT,
+        Err(err) => {
+            // Log the error if needed
+            eprintln!("Failed to delete object: {:?}", err);
+            if err.to_string() == "Object not found" {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
             }
-        }
-        Ok(_) => {
-            return StatusCode::NOT_FOUND;
-        }
-        Err(_) => {
-            return StatusCode::NOT_FOUND;
         }
     }
 }

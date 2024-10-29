@@ -59,11 +59,15 @@ async fn main() {
         )
         .nest(
             "/api/uploads",
-            uploads::views::router(db.clone(), keycloak_auth_instance.clone(), s3_client),
+            uploads::views::router(
+                db.clone(),
+                keycloak_auth_instance.clone(),
+                s3_client.clone(),
+            ),
         )
         .nest(
             "/tus",
-            external::tus::views::router(db.clone(), keycloak_auth_instance),
+            external::tus::views::router(db.clone(), keycloak_auth_instance, s3_client),
         );
 
     let addr: std::net::SocketAddr = "0.0.0.0:3000".parse().unwrap();

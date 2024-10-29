@@ -4,12 +4,15 @@ use crate::submissions::db as SubmissionDB;
 use crate::uploads::associations::db as AssociationDB;
 use crate::uploads::db as InputObjectDB;
 use anyhow::Result;
+use aws_sdk_s3::Client as S3Client;
 use chrono::Utc;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, ModelTrait, QueryFilter, Set};
+use std::sync::Arc;
 use uuid::Uuid;
 
 pub(super) async fn handle_pre_create(
     db: DatabaseConnection,
+    s3: Arc<S3Client>,
     payload: EventPayload,
 ) -> Result<PreCreateResponse> {
     println!("Handling pre-create");
@@ -28,13 +31,6 @@ pub(super) async fn handle_pre_create(
     println!("Filename: {}, Filetype: {}", filename, filetype);
 
     // Check that the submission does not already have that same filename
-    // let existing_file = InputObjectDB::Entity::find()
-    //     .filter(InputObjectDB::Column::Filename.eq(filename.clone()))
-    //     .find_also_related(AssociationDB::Entity)
-    //     .filter(AssociationDB::Column::SubmissionId.eq(submission_id))
-    //     .one(&db)
-    //     .await?;
-
     let results: Vec<(SubmissionDB::Model, Vec<InputObjectDB::Model>)> =
         SubmissionDB::Entity::find()
             .filter(SubmissionDB::Column::Id.eq(submission_id))
@@ -44,36 +40,48 @@ pub(super) async fn handle_pre_create(
             .await
             .unwrap();
 
-    // Unpack the tuples, if there are any input objects, then the filename is already in use
-    if results.iter().any(|(_, objs)| objs.len() > 0) {
-        return Ok(PreCreateResponse {
-            // change_file_info: Some(ChangeFileInfo {
-            // id: object.last_insert_id.to_string(),
-            // }),
-            status: "success".to_string(),
-            http_response: Some(HttpResponse {
-                status_code: Some(400),
-                body: Some(
-                    "File already uploaded with this filename in this submission".to_string(),
-                ),
-                ..Default::default()
-            }),
-            reject_upload: true,
-            ..Default::default()
-        });
+    // Unpack the tuples to check if filename is already in use
+    for (_, objs) in results.iter() {
+        if !objs.is_empty() {
+            let existing_object = &objs[0];
+            if existing_object.all_parts_received {
+                // File upload is complete, return 400 error
+                return Ok(PreCreateResponse {
+                    status: "failure".to_string(),
+                    http_response: Some(HttpResponse {
+                        status_code: Some(400),
+                        body: Some(
+                            "File already uploaded with this filename in this submission"
+                                .to_string(),
+                        ),
+                        ..Default::default()
+                    }),
+                    reject_upload: true,
+                    ..Default::default()
+                });
+            } else {
+                // File upload is incomplete, delete from S3 and DB
+                crate::uploads::services::delete_object(&db, &s3, existing_object.id).await?;
+                match existing_object.clone().delete(&db).await {
+                    Ok(_) => println!("Deleted incomplete file from S3 and database"),
+                    _ => return Err(anyhow::anyhow!("Failed to delete object")),
+                }
+            }
+        }
     }
 
+    // Proceed if no complete files are found
     let allowed_types: Vec<&str> = vec!["application/octet-stream"];
     let allowed_file_extensions: Vec<&str> = vec!["pod5"];
 
-    if !allowed_types.contains(&filetype.clone().as_str()) {
+    if !allowed_types.contains(&filetype.as_str()) {
         return Err(anyhow::anyhow!("Filetype not allowed"));
     }
     if !allowed_file_extensions.contains(&filename.split('.').last().unwrap()) {
         return Err(anyhow::anyhow!("File extension not allowed"));
     }
 
-    // Check that the submission does not already have that same filename
+    // Create new object in DB
     let object = InputObjectDB::ActiveModel {
         id: Set(Uuid::new_v4()),
         created_on: Set(Utc::now().naive_utc()),

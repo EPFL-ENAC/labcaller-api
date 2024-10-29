@@ -11,13 +11,18 @@ use axum_keycloak_auth::{
     instance::KeycloakAuthInstance, layer::KeycloakAuthLayer, PassthroughMode,
 };
 
+use aws_sdk_s3::Client as S3Client;
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 
-pub fn router(db: DatabaseConnection, keycloak_auth_instance: Arc<KeycloakAuthInstance>) -> Router {
+pub fn router(
+    db: DatabaseConnection,
+    keycloak_auth_instance: Arc<KeycloakAuthInstance>,
+    s3: Arc<S3Client>,
+) -> Router {
     Router::new()
         .route("/hooks", post(handle_tus_hooks))
-        .with_state(db)
+        .with_state((db, s3))
         // Add the KeycloakAuthLayer to validate JWT tokens for tus hooks
         .layer(
             KeycloakAuthLayer::<Role>::builder()
@@ -33,11 +38,11 @@ pub fn router(db: DatabaseConnection, keycloak_auth_instance: Arc<KeycloakAuthIn
 // Example of async function to handle tus hook events
 #[axum::debug_handler]
 pub async fn handle_tus_hooks(
-    State(db): State<DatabaseConnection>,
+    State((db, s3)): State<(DatabaseConnection, Arc<S3Client>)>,
     Json(payload): Json<EventPayload>,
 ) -> (StatusCode, Json<PreCreateResponse>) {
     match payload.event_type {
-        EventType::PreCreate => match handle_pre_create(db, payload).await {
+        EventType::PreCreate => match handle_pre_create(db, s3, payload).await {
             Ok(response) => (StatusCode::CREATED, Json(response)),
             Err(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
