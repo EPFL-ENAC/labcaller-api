@@ -166,11 +166,7 @@ pub async fn get_one(
     State((db, s3)): State<(DatabaseConnection, Arc<S3Client>)>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<super::models::Submission>, (StatusCode, Json<String>)> {
-    let obj = match super::db::Entity::find_by_id(id)
-        // .find_also_related(crate::uploads::associations::db::Entity)
-        .one(&db)
-        .await
-    {
+    let obj = match super::db::Entity::find_by_id(id).one(&db).await {
         Ok(obj) => obj.unwrap(),
         _ => return Err((StatusCode::NOT_FOUND, Json("Not Found".to_string()))),
     };
@@ -190,7 +186,16 @@ pub async fn get_one(
         }
     };
 
-    let submission: super::models::Submission = (obj, uploads, outputs).into();
+    // let status: Vec<super::run_status::db::Model> = obj
+    //     .find_related(super::run_status::db::Entity)
+    //     .all(&db)
+    //     .await
+    //     .unwrap();
+
+    let jobs = crate::external::k8s::services::get_jobs_for_submission_id(obj.id)
+        .await
+        .unwrap();
+    let submission: super::models::Submission = (obj.clone(), uploads, jobs, outputs).into();
 
     Ok(Json(submission))
 }
@@ -251,9 +256,11 @@ pub async fn execute_workflow(
     State((db, _s3)): State<(DatabaseConnection, Arc<S3Client>)>,
     Path(id): Path<Uuid>,
 ) -> StatusCode {
+    let config = crate::config::Config::from_env();
+
     // Generate a unique job name
     let random_number: u32 = rand::thread_rng().gen_range(10000..99999);
-    let job_name = format!("labcaller-{}-{}", id, random_number);
+    let job_name = format!("{}-{}-{}", config.pod_prefix, id, random_number);
 
     // Fetch submission and related uploads
     let obj = match super::db::Entity::find_by_id(id).one(&db).await {

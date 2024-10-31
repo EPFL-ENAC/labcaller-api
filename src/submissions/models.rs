@@ -1,3 +1,5 @@
+use crate::uploads::models::UploadRead;
+
 use super::db::ActiveModel;
 use chrono::NaiveDateTime;
 use sea_orm::{DeriveIntoActiveModel, NotSet, Set};
@@ -14,8 +16,10 @@ pub struct Submission {
     comment: Option<String>,
     created_on: NaiveDateTime,
     last_updated: NaiveDateTime,
-    pub(super) associations: Option<Vec<crate::uploads::models::UploadRead>>,
-    outputs: Option<Vec<crate::external::s3::models::OutputObjectResponse>>,
+    pub(super) associations: Vec<crate::uploads::models::UploadRead>,
+    outputs: Vec<crate::external::s3::models::OutputObjectResponse>,
+    // status: Vec<super::run_status::models::RunStatus>,
+    status: Vec<crate::external::k8s::models::PodName>,
 }
 
 impl From<super::db::Model> for Submission {
@@ -28,8 +32,9 @@ impl From<super::db::Model> for Submission {
             comment: model.comment,
             created_on: model.created_on,
             last_updated: model.last_updated,
-            associations: None,
-            outputs: None,
+            associations: vec![],
+            outputs: vec![],
+            status: vec![],
         }
     }
 }
@@ -38,6 +43,8 @@ impl
     From<(
         super::db::Model,
         Option<Vec<crate::uploads::db::Model>>,
+        // Vec<super::run_status::db::Model>,
+        Vec<crate::external::k8s::models::PodName>,
         Vec<crate::external::s3::models::OutputObject>,
     )> for Submission
 {
@@ -45,12 +52,15 @@ impl
         model_tuple: (
             super::db::Model,
             Option<Vec<crate::uploads::db::Model>>,
+            // Vec<super::run_status::db::Model>,
+            Vec<crate::external::k8s::models::PodName>,
             Vec<crate::external::s3::models::OutputObject>,
         ),
     ) -> Self {
         let submission = model_tuple.0;
         let uploads = model_tuple.1;
-        let outputs = model_tuple.2;
+        let status = model_tuple.2;
+        let outputs = model_tuple.3;
         Self {
             id: submission.id,
             name: submission.name,
@@ -59,14 +69,13 @@ impl
             comment: submission.comment,
             created_on: submission.created_on,
             last_updated: submission.last_updated,
-            associations: Some(
-                uploads
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|association| association.into())
-                    .collect(),
-            ),
-            outputs: Some(outputs.into_iter().map(|output| output.into()).collect()),
+            associations: uploads
+                .unwrap_or_default()
+                .into_iter()
+                .map(|association| association.into())
+                .collect(),
+            status: status.into_iter().map(|status| status.into()).collect(),
+            outputs: outputs.into_iter().map(|output| output.into()).collect(),
         }
     }
 }

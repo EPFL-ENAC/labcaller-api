@@ -1,6 +1,7 @@
 use super::models::PodName;
 use crate::config::Config;
 use anyhow::{anyhow, Result};
+use chrono::{DateTime, Utc};
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
     api::{Api, ListParams},
@@ -11,6 +12,7 @@ use secrecy::Secret;
 use serde::Deserialize;
 use std::fs::File;
 use std::io::Read;
+use uuid::Uuid;
 
 #[derive(Deserialize)]
 struct TokenResponse {
@@ -58,27 +60,78 @@ fn extract_refresh_token(kubeconfig: &Kubeconfig) -> Option<String> {
     None
 }
 
-pub async fn get_pods() -> Result<Option<Vec<PodName>>> {
+pub async fn get_pods() -> Result<Vec<crate::external::k8s::models::PodName>, kube::Error> {
     // Get app config and kube client
     let app_config = Config::from_env();
-    let client = match refresh_token_and_get_client().await {
-        Ok(client) => client,
-        Err(e) => {
-            return Err(e);
-        }
-    };
+    let client = refresh_token_and_get_client().await.unwrap();
 
-    // Get pods from RCP
+    // Get pods from Kubernetes API
     let pods: Api<Pod> = Api::namespaced(client, &app_config.kube_namespace);
     let lp = ListParams::default();
-    let pods: Vec<PodName> = pods
-        .list(&lp)
-        .await?
+
+    let pod_list = match pods.list(&lp).await {
+        Ok(pod_list) => pod_list,
+        Err(e) => return Err(e),
+    };
+    println!("Found {} pods", pod_list.items.len());
+    if let Some(first_pod) = pod_list.items.first() {
+        println!("First pod name: {:?}", first_pod.metadata.name);
+        println!("First pod status: {:?}", first_pod.status);
+    } else {
+        println!("No pods found.");
+    }
+
+    let pod_infos: Vec<crate::external::k8s::models::PodName> = pod_list
+        .clone()
+        .items
         .into_iter()
-        .filter_map(|pod| PodName::try_from(pod.metadata.name.clone().unwrap()).ok())
+        .filter_map(|pod| {
+            let name = pod.metadata.name.clone()?;
+
+            // Add this line to filter by prefix
+            if !name.starts_with(&app_config.pod_prefix) {
+                return None;
+            }
+
+            let start_time: DateTime<Utc> = pod.status.clone().unwrap().start_time.unwrap().0;
+            // Get the latest status by the latest container status.conditions ordered by last_transition_time
+            let latest_status_info = pod.status.as_ref().and_then(|status| {
+                status.conditions.as_ref().and_then(|conditions| {
+                    conditions
+                        .iter()
+                        .max_by_key(|condition| condition.last_transition_time.clone())
+                        .map(|condition| {
+                            (
+                                condition.reason.clone(),
+                                condition.last_transition_time.clone(),
+                            )
+                        })
+                })
+            });
+
+            let (latest_status, latest_status_time) = match latest_status_info {
+                Some((status, time)) => (status.unwrap_or("Unknown".to_string()), time.unwrap().0),
+                None => ("Unknown".to_string(), Utc::now()),
+            };
+
+            println!("Pod name: {}", name);
+            println!("Start time: {:?}", start_time);
+            println!("Latest status message: {:?}", latest_status);
+            println!("Latest status time: {:?}", latest_status_time);
+
+            Some(
+                crate::external::k8s::models::PodInfo {
+                    name,
+                    start_time,
+                    latest_status,
+                    latest_status_time,
+                }
+                .into(),
+            )
+        })
         .collect();
 
-    Ok(Some(pods))
+    Ok(pod_infos)
 }
 
 pub async fn refresh_token_and_get_client() -> Result<Client> {
@@ -155,4 +208,19 @@ pub async fn refresh_token_and_get_client() -> Result<Client> {
 
     let client = Client::try_from(config)?;
     Ok(client)
+}
+
+pub async fn get_jobs_for_submission_id(submission_id: Uuid) -> Result<Vec<PodName>> {
+    // Get app config and kube client
+    let pods = get_pods().await.unwrap();
+
+    println!("Found {} pods for {}", pods.len(), submission_id);
+
+    // Filter pods by submission_id
+    let jobs: Vec<PodName> = pods
+        .into_iter()
+        .filter(|pod| pod.submission_id == submission_id)
+        .collect();
+
+    Ok(jobs)
 }

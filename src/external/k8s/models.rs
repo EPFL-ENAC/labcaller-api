@@ -1,13 +1,26 @@
-use crate::config::Config;
+use crate::{config::Config, submissions};
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use thiserror::Error;
+use tokio::io::split;
 use uuid::Uuid;
+
+#[derive(Debug)]
+pub struct PodInfo {
+    pub name: String,
+    pub start_time: DateTime<Utc>,
+    pub latest_status: String,
+    pub latest_status_time: DateTime<Utc>,
+}
 
 #[derive(Serialize, Debug, Clone)]
 pub struct PodName {
     pub prefix: String,
     pub submission_id: Uuid,
+    pub start_time: DateTime<Utc>,
+    pub latest_status: String,
+    pub latest_status_time: DateTime<Utc>,
     pub run_id: u64,
 }
 
@@ -23,34 +36,33 @@ pub enum PodNameError {
     InvalidRunId(#[from] std::num::ParseIntError),
 }
 
-impl TryFrom<String> for PodName {
-    type Error = PodNameError;
+impl From<PodInfo> for PodName {
+    fn from(pod_info: PodInfo) -> Self {
+        let config = Config::from_env();
 
-    fn try_from(pod_name: String) -> Result<Self, Self::Error> {
-        let app_config = Config::from_env();
-        let parts: Vec<&str> = pod_name.split('-').collect();
+        // Strip the prefix from the pod name, regardless of hyphens
+        let name_without_prefix = pod_info
+            .name
+            .strip_prefix(&format!("{}-", config.pod_prefix))
+            .unwrap_or(&pod_info.name); // fallback if prefix is absent
 
-        // Check that the pod name has the expected structure and prefix
-        if parts.len() < 7 {
-            return Err(PodNameError::InvalidStructure);
+        // Reverse split to isolate <UUID>-<run_id>-x-x parts
+        let parts: Vec<&str> = name_without_prefix.rsplitn(4, '-').collect();
+
+        if parts.len() < 4 {
+            panic!("Pod name does not have the expected structure");
         }
 
-        if parts[0] != app_config.pod_prefix {
-            return Err(PodNameError::InvalidPrefix);
-        }
+        let run_id: u64 = parts[2].parse().expect("Invalid run ID format");
+        let submission_id = Uuid::parse_str(parts[3]).expect("Invalid UUID format");
 
-        let uuid_str = format!(
-            "{}-{}-{}-{}-{}",
-            parts[1], parts[2], parts[3], parts[4], parts[5]
-        );
-
-        let submission_id = Uuid::parse_str(&uuid_str)?;
-        let run_id: u64 = parts[6].parse()?;
-
-        Ok(PodName {
-            prefix: parts[0].to_string(),
+        PodName {
+            prefix: config.pod_prefix.clone(),
             submission_id,
+            start_time: pod_info.start_time,
+            latest_status: pod_info.latest_status,
+            latest_status_time: pod_info.latest_status_time,
             run_id,
-        })
+        }
     }
 }
