@@ -1,5 +1,3 @@
-use crate::uploads::models::UploadRead;
-
 use super::db::ActiveModel;
 use chrono::NaiveDateTime;
 use sea_orm::{DeriveIntoActiveModel, NotSet, Set};

@@ -1,39 +1,24 @@
-use crate::{config::Config, submissions};
-use anyhow::Result;
+use crate::config::Config;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use thiserror::Error;
-use tokio::io::split;
 use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct PodInfo {
     pub name: String,
-    pub start_time: DateTime<Utc>,
+    pub start_time: Option<DateTime<Utc>>,
     pub latest_status: String,
-    pub latest_status_time: DateTime<Utc>,
+    pub latest_status_time: Option<DateTime<Utc>>,
 }
 
 #[derive(Serialize, Debug, Clone)]
 pub struct PodName {
     pub prefix: String,
     pub submission_id: Uuid,
-    pub start_time: DateTime<Utc>,
+    pub start_time: Option<DateTime<Utc>>,
     pub latest_status: String,
-    pub latest_status_time: DateTime<Utc>,
+    pub latest_status_time: Option<DateTime<Utc>>,
     pub run_id: u64,
-}
-
-#[derive(Error, Debug)]
-pub enum PodNameError {
-    #[error("Pod name does not have the expected structure")]
-    InvalidStructure,
-    #[error("Pod name does not have the expected prefix")]
-    InvalidPrefix,
-    #[error("Invalid UUID format")]
-    InvalidUuid(#[from] uuid::Error),
-    #[error("Invalid run ID")]
-    InvalidRunId(#[from] std::num::ParseIntError),
 }
 
 impl From<PodInfo> for PodName {

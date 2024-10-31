@@ -8,7 +8,6 @@ use sea_orm::{Database, DatabaseConnection, EntityTrait};
 async fn check_kubernetes() -> Result<serde_json::Value> {
     match crate::external::k8s::services::get_pods().await {
         Ok(pods) => Ok(serde_json::to_value(pods).unwrap()),
-        Ok(_) => Ok(serde_json::to_value("No pods found").unwrap()),
         Err(err) => Err(anyhow!(serde_json::to_value(err.to_string()).unwrap())),
     }
 }

@@ -73,14 +73,6 @@ pub async fn get_pods() -> Result<Vec<crate::external::k8s::models::PodName>, ku
         Ok(pod_list) => pod_list,
         Err(e) => return Err(e),
     };
-    println!("Found {} pods", pod_list.items.len());
-    if let Some(first_pod) = pod_list.items.first() {
-        println!("First pod name: {:?}", first_pod.metadata.name);
-        println!("First pod status: {:?}", first_pod.status);
-    } else {
-        println!("No pods found.");
-    }
-
     let pod_infos: Vec<crate::external::k8s::models::PodName> = pod_list
         .clone()
         .items
@@ -93,37 +85,33 @@ pub async fn get_pods() -> Result<Vec<crate::external::k8s::models::PodName>, ku
                 return None;
             }
 
-            let start_time: DateTime<Utc> = pod.status.clone().unwrap().start_time.unwrap().0;
-            // Get the latest status by the latest container status.conditions ordered by last_transition_time
-            let latest_status_info = pod.status.as_ref().and_then(|status| {
-                status.conditions.as_ref().and_then(|conditions| {
-                    conditions
-                        .iter()
-                        .max_by_key(|condition| condition.last_transition_time.clone())
-                        .map(|condition| {
-                            (
-                                condition.reason.clone(),
-                                condition.last_transition_time.clone(),
-                            )
-                        })
-                })
-            });
-
-            let (latest_status, latest_status_time) = match latest_status_info {
-                Some((status, time)) => (status.unwrap_or("Unknown".to_string()), time.unwrap().0),
-                None => ("Unknown".to_string(), Utc::now()),
+            let start_time: Option<DateTime<Utc>> = match pod.status.clone().unwrap().start_time {
+                Some(time) => Some(time.0),
+                None => None,
             };
 
-            println!("Pod name: {}", name);
-            println!("Start time: {:?}", start_time);
-            println!("Latest status message: {:?}", latest_status);
-            println!("Latest status time: {:?}", latest_status_time);
+            // println!("\nPod status: {:#?}\n", pod);
+            let phase = pod.status.as_ref().and_then(|status| status.phase.clone());
+
+            // Get the latest status time by the latest container status.conditions ordered by last_transition_time
+            let latest_status_time: Option<DateTime<Utc>> =
+                match pod.status.as_ref().and_then(|status| {
+                    status.conditions.as_ref().and_then(|conditions| {
+                        conditions
+                            .iter()
+                            .max_by_key(|condition| condition.last_transition_time.clone())
+                            .map(|condition| condition.last_transition_time.clone())
+                    })
+                }) {
+                    Some(time) => Some(time.unwrap().0),
+                    None => None,
+                };
 
             Some(
                 crate::external::k8s::models::PodInfo {
                     name,
                     start_time,
-                    latest_status,
+                    latest_status: phase.unwrap_or_else(|| "Unknown".to_string()),
                     latest_status_time,
                 }
                 .into(),
