@@ -58,7 +58,19 @@ impl
         let submission = model_tuple.0;
         let uploads = model_tuple.1;
         let status = model_tuple.2;
-        let outputs = model_tuple.3;
+        let mut outputs: Vec<crate::external::s3::models::OutputObjectResponse> = model_tuple
+            .3
+            .into_iter()
+            .map(|output| output.into())
+            .collect();
+
+        // Set the url for each output object
+        for output in outputs.iter_mut() {
+            output.url = Some(format!(
+                "/api/submissions/{}/{}",
+                submission.id, output.filename
+            ));
+        }
         Self {
             id: submission.id,
             name: submission.name,
@@ -73,7 +85,7 @@ impl
                 .map(|association| association.into())
                 .collect(),
             status: status.into_iter().map(|status| status.into()).collect(),
-            outputs: outputs.into_iter().map(|output| output.into()).collect(),
+            outputs: outputs,
         }
     }
 }
@@ -144,4 +156,15 @@ impl SubmissionUpdate {
 
         model
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DownloadToken {
+    pub token: String,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub(super) struct Claims {
+    pub(super) submission_id: Uuid,
+    pub(super) filename: String,
+    pub(super) exp: usize,
 }

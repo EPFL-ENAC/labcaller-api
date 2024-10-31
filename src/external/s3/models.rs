@@ -24,9 +24,10 @@ impl From<aws_sdk_s3::types::Object> for OutputObject {
 #[derive(ToSchema, Serialize, FromQueryResult, Debug)]
 pub struct OutputObjectResponse {
     // Let's not show the full key path through the API
-    filename: String,
-    last_modified: DateTime<Utc>,
-    size_bytes: i64,
+    pub filename: String,
+    pub last_modified: DateTime<Utc>,
+    pub size_bytes: i64,
+    pub url: Option<String>,
 }
 
 impl From<OutputObject> for OutputObjectResponse {
@@ -37,6 +38,7 @@ impl From<OutputObject> for OutputObjectResponse {
             last_modified: model.last_modified,
             filename: filename,
             size_bytes: model.size_bytes,
+            url: None,
         }
     }
 }

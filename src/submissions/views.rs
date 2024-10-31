@@ -9,15 +9,18 @@ use crate::external::k8s::crd::{
 use anyhow::Result;
 use aws_sdk_s3::Client as S3Client;
 use axum::{
+    body::Bytes,
     debug_handler,
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{header, StatusCode},
     response::IntoResponse,
     routing, Json, Router,
 };
 use axum_keycloak_auth::{
     instance::KeycloakAuthInstance, layer::KeycloakAuthLayer, PassthroughMode,
 };
+use chrono::{Duration, Utc};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use kube::{api::PostParams, Api};
 use rand::Rng;
 use sea_orm::{
@@ -41,6 +44,7 @@ pub fn router(
                 .delete(delete_one)
                 .post(execute_workflow),
         )
+        .route("/:id/:filename", routing::get(generate_download_token))
         .with_state((db, s3))
         .layer(
             KeycloakAuthLayer::<Role>::builder()
@@ -170,11 +174,9 @@ pub async fn get_one(
         Ok(obj) => obj.unwrap(),
         _ => return Err((StatusCode::NOT_FOUND, Json("Not Found".to_string()))),
     };
-    let outputs: Vec<crate::external::s3::models::OutputObject> =
-        crate::external::s3::services::get_outputs_from_id(s3, obj.id)
-            .await
-            .unwrap();
-
+    let outputs = crate::external::s3::services::get_outputs_from_id(s3, obj.id)
+        .await
+        .unwrap();
     let uploads = match obj.find_related(crate::uploads::db::Entity).all(&db).await {
         // Return all or none. If any fail, return an error
         Ok(uploads) => Some(uploads),
@@ -353,4 +355,80 @@ pub async fn execute_workflow(
             StatusCode::INTERNAL_SERVER_ERROR
         }
     }
+}
+
+pub async fn generate_download_token(
+    Path((submission_id, filename)): Path<(Uuid, String)>,
+) -> Result<Json<super::models::DownloadToken>, (StatusCode, String)> {
+    let config: crate::config::Config = crate::config::Config::from_env();
+    let expiration = Utc::now() + Duration::hours(1); // Token expiry in 1 hour
+    let claims = super::models::Claims {
+        submission_id,
+        filename: filename.clone(),
+        exp: expiration.timestamp() as usize,
+    };
+
+    let token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(config.serializer_secret_key.as_ref()),
+    )
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Token creation failed".to_string(),
+        )
+    })?;
+
+    Ok(Json(super::models::DownloadToken { token }))
+}
+
+pub async fn download_file(
+    Path(token): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let config: crate::config::Config = crate::config::Config::from_env();
+    let s3 = crate::external::s3::services::get_client(&config).await;
+
+    let token_data = decode::<super::models::Claims>(
+        &token,
+        &DecodingKey::from_secret(config.serializer_secret_key.as_ref()),
+        &Validation::default(),
+    )
+    .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid token".to_string()))?;
+
+    let claims = token_data.claims;
+    if claims.exp < Utc::now().timestamp() as usize {
+        return Err((StatusCode::UNAUTHORIZED, "Token expired".to_string()));
+    }
+
+    let key = format!(
+        "{}/outputs/{}/{}",
+        config.s3_prefix, claims.submission_id, claims.filename
+    );
+
+    println!("Key: {}", key);
+    println!("Token data: {:?}", claims);
+    let object = s3
+        .get_object()
+        .bucket(config.s3_bucket)
+        .key(key)
+        .send()
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, "File not found".to_string()))?;
+
+    let body = object.body.collect().await.map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to read file".to_string(),
+        )
+    })?;
+
+    Ok((
+        StatusCode::OK,
+        [(
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{}\"", claims.filename),
+        )],
+        Bytes::from(body.into_bytes()), // Ensures compatibility with `IntoResponse`
+    ))
 }

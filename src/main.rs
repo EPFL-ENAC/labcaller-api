@@ -52,6 +52,10 @@ async fn main() {
         .route("/healthz", get(common::views::healthz))
         .route("/api/config", get(common::views::get_ui_config))
         .route("/api/status", get(common::views::get_status))
+        .route(
+            "/api/submissions/download/:token",
+            get(submissions::views::download_file),
+        )
         .with_state(db.clone())
         .nest(
             "/api/submissions",
