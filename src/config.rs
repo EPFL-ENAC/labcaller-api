@@ -43,7 +43,7 @@ impl Config {
                 .expect("DEPLOYMENT must be set, this can be local, dev, stage, or prod")
         );
         let pod_prefix = format!(
-            "{}.{}",
+            "{}-{}",
             env::var("APP_NAME").expect("APP_NAME must be set"),
             env::var("DEPLOYMENT")
                 .expect("DEPLOYMENT must be set, this can be local, dev, stage, or prod")
