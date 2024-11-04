@@ -125,7 +125,6 @@ pub async fn delete_one(
         Ok(_) => StatusCode::NO_CONTENT,
         Err(err) => {
             // Log the error if needed
-            eprintln!("Failed to delete object: {:?}", err);
             if err.to_string() == "Object not found" {
                 StatusCode::NOT_FOUND
             } else {

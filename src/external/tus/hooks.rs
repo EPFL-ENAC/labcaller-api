@@ -15,8 +15,6 @@ pub(super) async fn handle_pre_create(
     s3: Arc<S3Client>,
     payload: EventPayload,
 ) -> Result<PreCreateResponse> {
-    println!("Handling pre-create");
-
     let filename = payload.event.upload.metadata.filename;
     let filetype = payload.event.upload.metadata.filetype;
     let size_in_bytes = payload.event.upload.size;
@@ -27,8 +25,6 @@ pub(super) async fn handle_pre_create(
         },
         _ => Err(anyhow::anyhow!("Submission ID not found"))?,
     };
-    println!("Submission ID: {}", submission_id);
-    println!("Filename: {}, Filetype: {}", filename, filetype);
 
     // Check that the submission does not already have that same filename
     let results: Vec<(SubmissionDB::Model, Vec<InputObjectDB::Model>)> =
@@ -62,10 +58,7 @@ pub(super) async fn handle_pre_create(
             } else {
                 // File upload is incomplete, delete from S3 and DB
                 crate::uploads::services::delete_object(&db, &s3, existing_object.id).await?;
-                match existing_object.clone().delete(&db).await {
-                    Ok(_) => println!("Deleted incomplete file from S3 and database"),
-                    _ => return Err(anyhow::anyhow!("Failed to delete object")),
-                }
+                existing_object.clone().delete(&db).await?;
             }
         }
     }
@@ -126,7 +119,6 @@ pub(super) async fn handle_post_create(
     db: DatabaseConnection,
     payload: EventPayload,
 ) -> Result<PreCreateResponse> {
-    println!("Handling post-create");
     let upload_id = &payload.event.upload.id;
     // Split the upload_id on the + separator to get the object ID.
     let object_id: Uuid = match upload_id
@@ -136,7 +128,6 @@ pub(super) async fn handle_post_create(
     {
         Some(id) => id,
         _ => {
-            println!("Invalid object ID in upload_id");
             return Err(anyhow::anyhow!("Invalid object ID in upload_id"));
         }
     };
@@ -170,7 +161,6 @@ pub(super) async fn handle_post_receive(
     db: DatabaseConnection,
     payload: EventPayload,
 ) -> Result<PreCreateResponse> {
-    println!("Handling post-receive");
     let upload_id = &payload.event.upload.id;
     // Split the upload_id on the + separator to get the object ID.
     let object_id: Uuid = match upload_id
@@ -180,7 +170,6 @@ pub(super) async fn handle_post_receive(
     {
         Some(id) => id,
         _ => {
-            println!("Invalid object ID in upload_id");
             return Err(anyhow::anyhow!("Invalid object ID in upload_id"));
         }
     };
@@ -228,7 +217,6 @@ pub(super) async fn handle_pre_finish(
     db: DatabaseConnection,
     payload: EventPayload,
 ) -> Result<PreCreateResponse> {
-    println!("Handling pre-finish");
     let upload_id = &payload.event.upload.id;
     // Split the upload_id on the + separator to get the object ID.
     let object_id: Uuid = match upload_id
@@ -238,7 +226,6 @@ pub(super) async fn handle_pre_finish(
     {
         Some(id) => id,
         _ => {
-            println!("Invalid object ID in upload_id");
             return Err(anyhow::anyhow!("Invalid object ID in upload_id"));
         }
     };
@@ -272,7 +259,6 @@ pub(super) async fn handle_post_finish(
     db: DatabaseConnection,
     payload: EventPayload,
 ) -> Result<PreCreateResponse> {
-    println!("Handling post-finish");
     let upload_id = &payload.event.upload.id;
 
     // Split the upload_id on the + separator to get the object ID.
@@ -283,7 +269,6 @@ pub(super) async fn handle_post_finish(
     {
         Some(id) => id,
         _ => {
-            println!("Invalid object ID in upload_id");
             return Err(anyhow::anyhow!("Invalid object ID in upload_id"));
         }
     };
@@ -318,7 +303,7 @@ pub(super) async fn handle_post_terminate(
     payload: EventPayload,
 ) -> Result<PreCreateResponse> {
     // This hook is sent when the file should be cleaned up (del from db)
-    println!("Handling post-terminate");
+
     let upload_id = &payload.event.upload.id;
 
     // Split the upload_id on the + separator to get the object ID.
@@ -329,7 +314,6 @@ pub(super) async fn handle_post_terminate(
     {
         Some(id) => id,
         _ => {
-            println!("Invalid object ID in upload_id");
             return Err(anyhow::anyhow!("Invalid object ID in upload_id"));
         }
     };

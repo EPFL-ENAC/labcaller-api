@@ -356,19 +356,12 @@ pub async fn execute_workflow(
         },
     );
 
-    println!("Submitting TrainingWorkload: {:?}", training_workload);
     // Submit the custom resource to Kubernetes
     let api: Api<TrainingWorkload> = Api::namespaced(client, &config.kube_namespace);
 
     match api.create(&PostParams::default(), &training_workload).await {
-        Ok(_) => {
-            println!("Submitted TrainingWorkload: {}", job_name);
-            StatusCode::CREATED
-        }
-        Err(e) => {
-            eprintln!("Failed to submit TrainingWorkload: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        }
+        Ok(_) => StatusCode::CREATED,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
 

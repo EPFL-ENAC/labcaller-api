@@ -56,7 +56,6 @@ fn extract_refresh_token(kubeconfig: &Kubeconfig) -> Option<String> {
             }
         }
     }
-    println!("No refresh token found in kubeconfig.");
     None
 }
 
@@ -90,7 +89,6 @@ pub async fn get_pods() -> Result<Vec<crate::external::k8s::models::PodName>, ku
                 None => None,
             };
 
-            // println!("\nPod status: {:#?}\n", pod);
             let phase = pod.status.as_ref().and_then(|status| status.phase.clone());
 
             // Get the latest status time by the latest container status.conditions ordered by last_transition_time
@@ -201,8 +199,6 @@ pub async fn refresh_token_and_get_client() -> Result<Client> {
 pub async fn get_jobs_for_submission_id(submission_id: Uuid) -> Result<Vec<PodName>> {
     // Get app config and kube client
     let pods = get_pods().await.unwrap();
-
-    println!("Found {} pods for {}", pods.len(), submission_id);
 
     // Filter pods by submission_id
     let jobs: Vec<PodName> = pods
