@@ -198,7 +198,10 @@ pub async fn refresh_token_and_get_client() -> Result<Client> {
 
 pub async fn get_jobs_for_submission_id(submission_id: Uuid) -> Result<Vec<PodName>> {
     // Get app config and kube client
-    let pods = get_pods().await.unwrap();
+    let pods = match get_pods().await {
+        Ok(pods) => pods,
+        Err(_) => Vec::new(), // Return an empty list if there's an error
+    };
 
     // Filter pods by submission_id
     let jobs: Vec<PodName> = pods
