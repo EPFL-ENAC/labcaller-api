@@ -122,3 +122,23 @@
 
 //     Ok(())
 // }
+
+use crate::uploads::db;
+use anyhow::{anyhow, Error, Result};
+use sea_orm::{DatabaseConnection, ModelTrait};
+
+pub(super) async fn get_input_objects(
+    submission_obj: super::db::Model,
+    db: &DatabaseConnection,
+) -> Result<Vec<db::Model>, Error> {
+    // Get the related objects to the submission according to the association
+    match submission_obj
+        .find_related(crate::uploads::db::Entity)
+        .all(db)
+        .await
+    {
+        // Return all or none. If any fail, return an error
+        Ok(uploads) => Ok(uploads),
+        Err(_) => Err(anyhow!("Failed to fetch uploads")),
+    }
+}

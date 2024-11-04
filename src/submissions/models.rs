@@ -40,7 +40,7 @@ impl From<super::db::Model> for Submission {
 impl
     From<(
         super::db::Model,
-        Option<Vec<crate::uploads::db::Model>>,
+        Vec<crate::uploads::db::Model>,
         // Vec<super::run_status::db::Model>,
         Vec<crate::external::k8s::models::PodName>,
         Vec<crate::external::s3::models::OutputObject>,
@@ -49,7 +49,7 @@ impl
     fn from(
         model_tuple: (
             super::db::Model,
-            Option<Vec<crate::uploads::db::Model>>,
+            Vec<crate::uploads::db::Model>,
             // Vec<super::run_status::db::Model>,
             Vec<crate::external::k8s::models::PodName>,
             Vec<crate::external::s3::models::OutputObject>,
@@ -80,7 +80,6 @@ impl
             created_on: submission.created_on,
             last_updated: submission.last_updated,
             associations: uploads
-                .unwrap_or_default()
                 .into_iter()
                 .map(|association| association.into())
                 .collect(),

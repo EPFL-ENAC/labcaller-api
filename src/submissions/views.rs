@@ -174,19 +174,12 @@ pub async fn get_one(
         Ok(obj) => obj.unwrap(),
         _ => return Err((StatusCode::NOT_FOUND, Json("Not Found".to_string()))),
     };
-    let outputs = crate::external::s3::services::get_outputs_from_id(s3, obj.id)
+    let outputs = crate::external::s3::services::get_outputs_from_submission(&s3, &obj)
         .await
         .unwrap();
-    let uploads = match obj.find_related(crate::uploads::db::Entity).all(&db).await {
-        // Return all or none. If any fail, return an error
-        Ok(uploads) => Some(uploads),
-        Err(_) => {
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json("Server error".to_string()),
-            ))
-        }
-    };
+    let uploads = super::services::get_input_objects(obj.clone(), &db)
+        .await
+        .unwrap();
 
     // let status: Vec<super::run_status::db::Model> = obj
     //     .find_related(super::run_status::db::Entity)
@@ -235,7 +228,7 @@ pub async fn update_one(
     responses((status = NO_CONTENT))
 )]
 pub async fn delete_one(
-    State((db, _s3)): State<(DatabaseConnection, Arc<S3Client>)>,
+    State((db, s3)): State<(DatabaseConnection, Arc<S3Client>)>,
     Path(id): Path<Uuid>,
 ) -> StatusCode {
     let obj = super::db::Entity::find_by_id(id)
@@ -243,6 +236,28 @@ pub async fn delete_one(
         .await
         .unwrap()
         .expect("Failed to find object");
+
+    // Delete all input objects
+    let uploads = super::services::get_input_objects(obj.clone(), &db)
+        .await
+        .expect("Failed to fetch input objects");
+
+    for upload in uploads {
+        crate::uploads::services::delete_object(&db, &s3, upload.id)
+            .await
+            .expect("Failed to delete input object");
+    }
+
+    // Delete all outputs
+    let outputs = crate::external::s3::services::get_outputs_from_submission(&s3, &obj)
+        .await
+        .expect("Failed to fetch output objects");
+
+    for output in outputs {
+        crate::external::s3::services::delete_output_object(&s3, output)
+            .await
+            .expect("Failed to delete output object");
+    }
 
     let res: DeleteResult = obj.delete(&db).await.expect("Failed to delete object");
 
@@ -406,8 +421,6 @@ pub async fn download_file(
         config.s3_prefix, claims.submission_id, claims.filename
     );
 
-    println!("Key: {}", key);
-    println!("Token data: {:?}", claims);
     let object = s3
         .get_object()
         .bucket(config.s3_bucket)

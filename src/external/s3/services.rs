@@ -4,7 +4,6 @@ use aws_config::BehaviorVersion;
 use aws_sdk_s3::config::Credentials;
 use aws_sdk_s3::{config::Region, Client as S3Client};
 use std::sync::Arc;
-use uuid::Uuid;
 
 pub async fn get_client(config: &Config) -> Arc<S3Client> {
     let region = Region::new("us-east-1");
@@ -25,12 +24,12 @@ pub async fn get_client(config: &Config) -> Arc<S3Client> {
     Arc::new(S3Client::new(&shared_config))
 }
 
-pub async fn get_outputs_from_id(
-    client: Arc<S3Client>,
-    id: Uuid,
+pub async fn get_outputs_from_submission(
+    client: &Arc<S3Client>,
+    obj: &crate::submissions::db::Model,
 ) -> Result<Vec<super::models::OutputObject>, Box<dyn std::error::Error>> {
     let config = crate::config::Config::from_env();
-    let prefix = format!("{}/outputs/{}/", config.s3_prefix, id);
+    let prefix = format!("{}/outputs/{}/", config.s3_prefix, obj.id);
     let mut outputs: Vec<super::models::OutputObject> = vec![];
     let list = client
         .list_objects()
@@ -46,4 +45,19 @@ pub async fn get_outputs_from_id(
     }
 
     Ok(outputs)
+}
+
+pub async fn delete_output_object(
+    client: &Arc<S3Client>,
+    object: super::models::OutputObject,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = crate::config::Config::from_env();
+    client
+        .delete_object()
+        .bucket(config.s3_bucket)
+        .key(object.key)
+        .send()
+        .await?;
+
+    Ok(())
 }
