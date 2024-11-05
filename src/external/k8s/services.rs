@@ -1,6 +1,6 @@
 use super::models::PodName;
 use crate::config::Config;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Error, Result};
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
@@ -59,10 +59,10 @@ fn extract_refresh_token(kubeconfig: &Kubeconfig) -> Option<String> {
     None
 }
 
-pub async fn get_pods() -> Result<Vec<crate::external::k8s::models::PodName>, kube::Error> {
+pub async fn get_pods() -> Result<Vec<crate::external::k8s::models::PodName>, Error> {
     // Get app config and kube client
     let app_config = Config::from_env();
-    let client = refresh_token_and_get_client().await.unwrap();
+    let client = refresh_token_and_get_client().await?;
 
     // Get pods from Kubernetes API
     let pods: Api<Pod> = Api::namespaced(client, &app_config.kube_namespace);
@@ -70,7 +70,7 @@ pub async fn get_pods() -> Result<Vec<crate::external::k8s::models::PodName>, ku
 
     let pod_list = match pods.list(&lp).await {
         Ok(pod_list) => pod_list,
-        Err(e) => return Err(e),
+        Err(e) => return Err(e.into()),
     };
     let pod_infos: Vec<crate::external::k8s::models::PodName> = pod_list
         .clone()

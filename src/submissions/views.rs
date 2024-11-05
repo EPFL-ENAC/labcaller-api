@@ -8,8 +8,8 @@ use crate::external::k8s::crd::{
 };
 use anyhow::Result;
 use aws_sdk_s3::Client as S3Client;
+use axum::body::Body;
 use axum::{
-    body::Bytes,
     debug_handler,
     extract::{Path, Query, State},
     http::{header, StatusCode},
@@ -28,6 +28,7 @@ use sea_orm::{
     ModelTrait, SqlErr,
 };
 use std::sync::Arc;
+use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 
 pub fn router(
@@ -422,19 +423,20 @@ pub async fn download_file(
         .await
         .map_err(|_| (StatusCode::NOT_FOUND, "File not found".to_string()))?;
 
-    let body = object.body.collect().await.map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to read file".to_string(),
-        )
-    })?;
+    // Stream the S3 object body directly using `Body::from_stream`
+    let stream = ReaderStream::new(object.body.into_async_read());
+    let body = Body::from_stream(stream);
 
+    // Return response with streaming body
     Ok((
         StatusCode::OK,
-        [(
-            header::CONTENT_DISPOSITION,
-            format!("attachment; filename=\"{}\"", claims.filename),
-        )],
-        Bytes::from(body.into_bytes()), // Ensures compatibility with `IntoResponse`
+        [
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{}\"", claims.filename),
+            ),
+            (header::CONTENT_TYPE, "application/octet-stream".to_string()),
+        ],
+        body,
     ))
 }
