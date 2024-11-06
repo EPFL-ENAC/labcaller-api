@@ -9,6 +9,7 @@ use crate::external::k8s::crd::{
 use anyhow::Result;
 use aws_sdk_s3::Client as S3Client;
 use axum::body::Body;
+use axum::http::HeaderMap;
 use axum::{
     debug_handler,
     extract::{Path, Query, State},
@@ -19,7 +20,9 @@ use axum::{
 use axum_keycloak_auth::{
     instance::KeycloakAuthInstance, layer::KeycloakAuthLayer, PassthroughMode,
 };
+use bytes::Bytes;
 use chrono::{Duration, Utc};
+use futures::StreamExt;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use kube::{api::PostParams, Api};
 use rand::Rng;
@@ -27,8 +30,10 @@ use sea_orm::{
     query::*, ActiveModelTrait, DatabaseConnection, DeleteResult, EntityTrait, IntoActiveModel,
     ModelTrait, SqlErr,
 };
+use std::io::ErrorKind;
 use std::sync::Arc;
-use tokio_util::io::ReaderStream;
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 use uuid::Uuid;
 
 pub fn router(
@@ -391,11 +396,12 @@ pub async fn generate_download_token(
 
     Ok(Json(super::models::DownloadToken { token }))
 }
+use tokio_util::io::ReaderStream;
 
 pub async fn download_file(
     Path(token): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let config: crate::config::Config = crate::config::Config::from_env();
+    let config = crate::config::Config::from_env();
     let s3 = crate::external::s3::services::get_client(&config).await;
 
     let token_data = decode::<super::models::Claims>(
@@ -417,26 +423,63 @@ pub async fn download_file(
 
     let object = s3
         .get_object()
-        .bucket(config.s3_bucket)
-        .key(key)
+        .bucket(&config.s3_bucket)
+        .key(&key)
         .send()
         .await
-        .map_err(|_| (StatusCode::NOT_FOUND, "File not found".to_string()))?;
+        .map_err(|e| (StatusCode::NOT_FOUND, format!("File not found: {}", e)))?;
 
-    // Stream the S3 object body directly using `Body::from_stream`
-    let stream = ReaderStream::new(object.body.into_async_read());
+    // Get the ByteStream from the object
+    let s3_body = object.body;
+
+    // Convert the ByteStream into an AsyncRead
+    let s3_body_async = s3_body.into_async_read();
+
+    // Convert the AsyncRead into a Stream using ReaderStream
+    let s3_stream = ReaderStream::new(s3_body_async);
+
+    // Create a bounded mpsc channel with capacity 10 (adjust as needed)
+    let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(10);
+
+    // Spawn a task to read from the s3_stream and send into the channel
+    tokio::spawn(async move {
+        tokio::pin!(s3_stream);
+        while let Some(result) = s3_stream.next().await {
+            match result {
+                Ok(bytes) => {
+                    if tx.send(Ok(bytes)).await.is_err() {
+                        // Receiver has dropped
+                        break;
+                    }
+                }
+                Err(e) => {
+                    // Map the error into std::io::Error
+                    let io_err = std::io::Error::new(ErrorKind::Other, e);
+                    let _ = tx.send(Err(io_err)).await;
+                    break;
+                }
+            }
+        }
+    });
+
+    // Create a stream from the receiver side of the channel
+    let stream = ReceiverStream::new(rx);
+
+    // Use Body::from_stream to create the response body
     let body = Body::from_stream(stream);
 
-    // Return response with streaming body
-    Ok((
-        StatusCode::OK,
-        [
-            (
-                header::CONTENT_DISPOSITION,
-                format!("attachment; filename=\"{}\"", claims.filename),
-            ),
-            (header::CONTENT_TYPE, "application/octet-stream".to_string()),
-        ],
-        body,
-    ))
+    // Build the response with headers
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        format!("attachment; filename=\"{}\"", claims.filename)
+            .parse()
+            .unwrap(),
+    );
+    headers.insert(
+        header::CONTENT_TYPE,
+        "application/octet-stream".parse().unwrap(),
+    );
+
+    Ok((headers, body))
 }

@@ -35,7 +35,7 @@ utoipa-redoc = { version = "4.0.0", features = ["axum"] }
 utoipa-rapidoc = { version = "4.0.0", features = ["axum"] }
 utoipa-scalar = { version = "0.1.0", features = ["axum"] }
 byteorder = "1.5.0"
-aws-sdk-s3 = "1.51.0"
+aws-sdk-s3 = { version = "1.51.0", features = ["rt-tokio"] }
 aws-config = "1.5.6"
 aws-types = "1.3.3"
 futures = "0.3.30"
@@ -59,3 +59,5 @@ rand = "0.8.5"
 schemars = "0.8.21"
 aws-smithy-types-convert = { version = "0.60.8", features = ["convert-chrono"] }
 jsonwebtoken = "9.3.0"
+tokio-stream = "0.1.16"
+bytes = "1.8.0"
