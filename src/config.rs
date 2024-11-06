@@ -25,7 +25,6 @@ pub struct Config {
     pub interval_external_services: u64,
     pub submission_base_image: String,
     pub submission_base_image_tag: String,
-    pub serializer_secret_key: String,
 
     pub s3_prefix: String,  // Prefix within the bucket, ie. labcaller-dev
     pub pod_prefix: String, // What is prefixed to the pod name, ie. labcaller-dev}
@@ -81,8 +80,6 @@ impl Config {
                 .expect("SUBMISSION_BASE_IMAGE must be set"),
             submission_base_image_tag: env::var("SUBMISSION_BASE_IMAGE_TAG")
                 .expect("SUBMISSION_BASE_IMAGE_TAG must be set"),
-            serializer_secret_key: env::var("SERIALIZER_SECRET_KEY")
-                .expect("SERIALIZER_SECRET_KEY must be set"),
             db_prefix,
             db_url,
             s3_prefix,

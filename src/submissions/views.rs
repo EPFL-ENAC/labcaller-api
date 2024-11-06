@@ -7,33 +7,26 @@ use crate::external::k8s::crd::{
     Environment, EnvironmentItems, TrainingWorkload, TrainingWorkloadSpec, ValueField,
 };
 use anyhow::Result;
+use aws_sdk_s3::presigning::PresigningConfig;
 use aws_sdk_s3::Client as S3Client;
-use axum::body::Body;
-use axum::http::HeaderMap;
 use axum::{
     debug_handler,
     extract::{Path, Query, State},
-    http::{header, StatusCode},
+    http::StatusCode,
     response::IntoResponse,
     routing, Json, Router,
 };
 use axum_keycloak_auth::{
     instance::KeycloakAuthInstance, layer::KeycloakAuthLayer, PassthroughMode,
 };
-use bytes::Bytes;
-use chrono::{Duration, Utc};
-use futures::StreamExt;
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use kube::{api::PostParams, Api};
 use rand::Rng;
 use sea_orm::{
     query::*, ActiveModelTrait, DatabaseConnection, DeleteResult, EntityTrait, IntoActiveModel,
     ModelTrait, SqlErr,
 };
-use std::io::ErrorKind;
 use std::sync::Arc;
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
+use std::time::Duration;
 use uuid::Uuid;
 
 pub fn router(
@@ -50,7 +43,7 @@ pub fn router(
                 .delete(delete_one)
                 .post(execute_workflow),
         )
-        .route("/:id/:filename", routing::get(generate_download_token))
+        .route("/:id/:filename", routing::get(generate_download_url))
         .with_state((db, s3))
         .layer(
             KeycloakAuthLayer::<Role>::builder()
@@ -371,115 +364,33 @@ pub async fn execute_workflow(
     }
 }
 
-pub async fn generate_download_token(
+pub async fn generate_download_url(
     Path((submission_id, filename)): Path<(Uuid, String)>,
-) -> Result<Json<super::models::DownloadToken>, (StatusCode, String)> {
-    let config: crate::config::Config = crate::config::Config::from_env();
-    let expiration = Utc::now() + Duration::hours(1); // Token expiry in 1 hour
-    let claims = super::models::Claims {
-        submission_id,
-        filename: filename.clone(),
-        exp: expiration.timestamp() as usize,
-    };
-
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(config.serializer_secret_key.as_ref()),
-    )
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Token creation failed".to_string(),
-        )
-    })?;
-
-    Ok(Json(super::models::DownloadToken { token }))
-}
-use tokio_util::io::ReaderStream;
-
-pub async fn download_file(
-    Path(token): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<Json<super::models::DownloadPath>, (StatusCode, String)> {
+    // Returns a presigned URL from S3. Assumes the client has access to the
+    // S3 domain (EPFL network in this case).
     let config = crate::config::Config::from_env();
     let s3 = crate::external::s3::services::get_client(&config).await;
 
-    let token_data = decode::<super::models::Claims>(
-        &token,
-        &DecodingKey::from_secret(config.serializer_secret_key.as_ref()),
-        &Validation::default(),
-    )
-    .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid token".to_string()))?;
-
-    let claims = token_data.claims;
-    if claims.exp < Utc::now().timestamp() as usize {
-        return Err((StatusCode::UNAUTHORIZED, "Token expired".to_string()));
-    }
-
     let key = format!(
         "{}/outputs/{}/{}",
-        config.s3_prefix, claims.submission_id, claims.filename
+        config.s3_prefix, submission_id, filename
     );
 
-    let object = s3
+    // Get presigned URL to give to client
+    let presigned_request = s3
         .get_object()
         .bucket(&config.s3_bucket)
         .key(&key)
-        .send()
+        .presigned(
+            PresigningConfig::builder()
+                .expires_in(Duration::from_secs(60 * 60)) // One hour
+                .build()
+                .expect("Duration is invalid"),
+        )
         .await
-        .map_err(|e| (StatusCode::NOT_FOUND, format!("File not found: {}", e)))?;
+        .unwrap();
 
-    // Get the ByteStream from the object
-    let s3_body = object.body;
-
-    // Convert the ByteStream into an AsyncRead
-    let s3_body_async = s3_body.into_async_read();
-
-    // Convert the AsyncRead into a Stream using ReaderStream
-    let s3_stream = ReaderStream::new(s3_body_async);
-
-    // Create a bounded mpsc channel with capacity 10 (adjust as needed)
-    let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(10);
-
-    // Spawn a task to read from the s3_stream and send into the channel
-    tokio::spawn(async move {
-        tokio::pin!(s3_stream);
-        while let Some(result) = s3_stream.next().await {
-            match result {
-                Ok(bytes) => {
-                    if tx.send(Ok(bytes)).await.is_err() {
-                        // Receiver has dropped
-                        break;
-                    }
-                }
-                Err(e) => {
-                    // Map the error into std::io::Error
-                    let io_err = std::io::Error::new(ErrorKind::Other, e);
-                    let _ = tx.send(Err(io_err)).await;
-                    break;
-                }
-            }
-        }
-    });
-
-    // Create a stream from the receiver side of the channel
-    let stream = ReceiverStream::new(rx);
-
-    // Use Body::from_stream to create the response body
-    let body = Body::from_stream(stream);
-
-    // Build the response with headers
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        header::CONTENT_DISPOSITION,
-        format!("attachment; filename=\"{}\"", claims.filename)
-            .parse()
-            .unwrap(),
-    );
-    headers.insert(
-        header::CONTENT_TYPE,
-        "application/octet-stream".parse().unwrap(),
-    );
-
-    Ok((headers, body))
+    let presigned_url = presigned_request.uri().to_string();
+    Ok(Json(super::models::DownloadPath { url: presigned_url }))
 }

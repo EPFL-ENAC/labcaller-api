@@ -158,8 +158,8 @@ impl SubmissionUpdate {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct DownloadToken {
-    pub token: String,
+pub struct DownloadPath {
+    pub url: String,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub(super) struct Claims {
